@@ -19,7 +19,6 @@ sbit FANPWREN=FANPWRENIOP^FANPWRENIOx;
 #define DualLit1SFanLimitRatio 0.60 //如果关闭超级1S模式，则在单锂下限制风扇的最大出力
 
 //内部变量
-bit IsEnablePWMFan; //内部标志位，是否开启PWM风扇模式
 static OCFSMStateDef OCState; //输出通道状态
 static xdata unsigned char OCFSMWait=0; //内部等待函数
 static xdata float RaiseVoltProc; //电压上升的函数
@@ -29,6 +28,7 @@ xdata MinMaxDutyVOutDef VMinMaxCfg;  //存储系统最小电压电流和无极调速上限配置
 xdata float TargetVoltage;          //目标风扇电压(仅电压模式生效)
 xdata float TargetfanSpeed; //目标风扇速度
 bit IsUpdateFanSpeed; //更新风扇速度
+bit IsEnablePWMFan; //内部标志位，是否开启PWM风扇模式
 
 //根据传入速度计算风扇PWM数值的函数
 static int SetFanPWMProcess(void)
@@ -293,6 +293,8 @@ void OutputChannel_Init(void)
 	LEDInitCfg.Mode=GPIO_IPU;
 	GPIO_ConfigGPIOMode(PinStrapIOG,GPIOMask(PinStrapIOx),&LEDInitCfg);  //配置为输入上拉
 	delay_ms(40);
+
+	//Strap已经稳定，可以读数了
 	if(PINStrap)IsEnablePWMFan=0;   //R17=DNP 风扇配置为电压调速模式
   else IsEnablePWMFan=1;          //R17=0R 风扇配置为四线模式		
 	//读取完毕，令Strap输出=0		

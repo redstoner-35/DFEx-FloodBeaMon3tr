@@ -1,3 +1,16 @@
+/****************************************************************************/
+/** \file main.c
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个文件负责驱动系统的主函数声明
+**
+**	History:
+				2026年9月10日 Initial Release
+**	
+*****************************************************************************/
+/****************************************************************************/
+/*	include files
+*****************************************************************************/
 #include "cms8s6990.h"
 #include "GPIO.h"
 #include "delay.h"
@@ -12,11 +25,15 @@
 #include "SysReset.h"
 #include "Tempcontrol.h"
 
-//函数声明
+/****************************************************************************/
+/*	function Prototype('extern')
+****************************************************************************/	
 void SleepMgmt(void);
 void MaskUnusedIO(void);
 
-//主函数
+/****************************************************************************/
+/*	main function ('main')
+****************************************************************************/	
 void main()
 	{
 	bit TaskSel=0;
@@ -32,6 +49,7 @@ void main()
 	OutputChannel_Init(); //初始化输出通道
 	ModeFSMInit(); //初始化模式状态机
 	BattCellCountConfig(); //电池节数识别处理
+	ThermalSystem_Init();  //初始化温控系统
 	MaskUnusedIO(); //屏蔽掉不用的IO
 	DisplayVBattAtStart(1); //上电时显示电池电压	
 	EnableADCAsync();       //使能ADC异步模式
@@ -76,3 +94,4 @@ void main()
 		SysHFBitFlag=0;	
 		}
 	}
+/*************************  End Of File  ***********************/

@@ -322,7 +322,7 @@
             <InterruptVectorAddress>0</InterruptVectorAddress>
             <VariousControls>
               <MiscControls></MiscControls>
-              <Define>EnableStdGPIO,EnableHyper1S</Define>
+              <Define>EnableStdGPIO</Define>
               <Undefine></Undefine>
               <IncludePath>.\include\System;.\StdDriver\inc;.\Hardware;.\include\Hardware;.\include\Middleware;.\include\Logic</IncludePath>
             </VariousControls>

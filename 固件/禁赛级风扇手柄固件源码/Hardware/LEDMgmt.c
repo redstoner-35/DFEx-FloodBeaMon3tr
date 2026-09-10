@@ -71,8 +71,8 @@ void LEDControlHandler(void)
 	//进行温控警告模式指示
 	if(IsThermalStepdown())
 		{
-		if(BoostModeInfoTIM>20)BoostModeInfoTIM=0;  //定时器大于12，清零到初始值
-		else if(BoostModeInfoTIM==14||BoostModeInfoTIM==18)
+		if(BoostModeInfoTIM>16)BoostModeInfoTIM=0;  //定时器大于16，清零到初始值
+			else if(BoostModeInfoTIM==12||BoostModeInfoTIM==16) //在定时器处于12和16的时候，强制关闭一次LED触发熄灭效果
 			{
 			BoostModeInfoTIM++;
 			RLED=0;

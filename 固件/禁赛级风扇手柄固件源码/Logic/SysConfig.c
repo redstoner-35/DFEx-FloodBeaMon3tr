@@ -170,7 +170,7 @@ void SaveSysConfig(bit IsForceSave)
 	if(IsSystemLocked)BFBuf|=IsLocked_MSK;										 //是否锁定
 	if(IsEnableIdleLED)BFBuf|=IsEnableIdleLED_MSK;             //是否开启有源夜光
 	if(IsEnable2SMode)BFBuf|=IsEnable2SMode_MSK;               //是否开启2S模式
-	if(IsEnable2SMode)BFBuf|=IsEnableBattCfgLock_MSK;          //是否开启电池配置锁
+	if(IsEnableBattCfgLock)BFBuf|=IsEnableBattCfgLock_MSK;          //是否开启电池配置锁
 		
 	SavedData.Data.SysConfig.Data.BitfieldMem1=BFBuf;
 	SavedData.Data.SysConfig.Data.RampDuty=RampDuty;

@@ -26,6 +26,7 @@ extern xdata float TargetVoltage;          //目标风扇电压(仅电压模式生效)
 extern xdata float TargetfanSpeed; //目标风扇速度
 extern bit IsUpdateFanSpeed; //更新风扇速度	
 extern xdata MinMaxDutyVOutDef VMinMaxCfg; //存储系统最小最大数据	
+extern bit IsEnablePWMFan; //内部标志位，是否开启PWM风扇模式	
 	
 //函数
 void OutputChannel_Calc(void);  //输出通道运算处理

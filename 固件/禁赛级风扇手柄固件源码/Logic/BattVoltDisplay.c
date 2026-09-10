@@ -419,7 +419,6 @@ void BattCellCountConfig(void)
 	//检测到NTC故障，红黄绿交错闪，然后等待几秒反复重复
 	if(!Data.IsNTCOK)while(1)
 		{
-		Result=Result+1%10;  //结果自增
 		switch(Result)
 			{
 			case 0:LEDMode=LED_Red;break;
@@ -430,6 +429,8 @@ void BattCellCountConfig(void)
 		//执行灯珠控制
 		delay_ms(100);
 		LEDControlHandler();
+		//计时变量自增实现交错显示
+		Result=Result+1%10;  
 		}
 	
 	//温度感测正常，默认电池OK

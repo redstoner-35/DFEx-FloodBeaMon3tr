@@ -21,6 +21,7 @@ void TempSensorStallDetect(void);   //温度传感检测
 bit QueryIfSysThermalIsOK(void);   //获取温度系统是否允许开机
 void OverHeatProtect(void);        //过热保护处理
 void TempDegDetect(void); 				 //线性降额计算
+void ThermalSystem_Init(void);     //初始化温控系统
 
 /************************************************************************************/
 /* Extern Flags and Variable definition */
