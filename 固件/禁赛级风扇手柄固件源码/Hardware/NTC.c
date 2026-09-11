@@ -1,7 +1,7 @@
 /****************************************************************************/
 /** \file NTC.c
 /** \Author [NTC resistor LUT generator BOT] @ redstoner_35
-/** \Project Xtern Ripper Hyper Boost HV 4S-GaN Edition 
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
 /** \Description 这个文件负责实现根据NTC读回的阻值反向计算温度的功能（该文件由
 机器自动生成，未经允许不得随意修改！！）
 
@@ -10,7 +10,7 @@
 		generator. DO NOT EDIT UNLESS YOU FULLY UNDERSTAND WHAT THIS
 		FILE ACTUALLY DOES!
 		NTC PARAMETER:100.00KΩ @ 25℃ B4310
-		Table temperature range:-18℃ to 85℃
+		Table temperature range:-15℃ to 85℃
 		Total ROM space for table:378 Bytes
 		Target MCU Architecture:8051 Based MCU
 

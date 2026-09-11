@@ -1,3 +1,16 @@
+/****************************************************************************/
+/** \file TempControl.c
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个文件是上层应用层逻辑，负责实现驱动的过热关机保护和积分温控降
+								 档避免手柄过热的温控保护功能，
+**	History:
+				2026年9月11日 Initial Release
+**	
+*****************************************************************************/
+/****************************************************************************/
+/*	include files
+*****************************************************************************/
 #include "LEDMgmt.h"
 #include "FastOp.h"
 #include "ModeSel.h"
@@ -5,6 +18,9 @@
 #include "OutputChannel.h"
 #include "BattDisplay.h"
 
+/****************************************************************************/
+/*	Local pre-processor symbols/macros('#define') For Parameter definition
+****************************************************************************/
 //温控温度参数
 #define NoThrottleTemp 47  //温控停止温度
 #define ThrottleMaintainTemp 49 //温控维持温度
@@ -20,16 +36,32 @@
 #define NoThrottleDutylim 100
 #define MaxThrottleDutylim 40    //不降档和最大降档的占空比限制
 
-//内部变量
+/****************************************************************************/
+/*	Local variable definitions('static')
+****************************************************************************/
 static xdata unsigned char TempSensorStallTIM;        //温度传感器故障计时
 static bit SysOverheatFlag;                           //系统过热flag
 static bit IsThermalThrottle;                         //是否触发温控保护
+static xdata float DutyLimit;                           //占空比限制
+static xdata float VoltageLimit;                        //电压限制
 
-//外部变量占空比和电压限制
-xdata float DutyLimit;                           //占空比限制
-xdata float VoltageLimit;                        //电压限制
+/****************************************************************************/
+/* Global Function implementation - Exported Status
+****************************************************************************/	
 
-//获取温度系统是否允许开机
+float QueryDutyLimit(void)
+	{
+	//获取系统的占空比限制值
+	return DutyLimit;
+	}
+
+float QueryVoltageLimit(void)
+	{
+	//获取系统的电压限制值
+	return VoltageLimit;
+	}	
+	
+//获取系统的温控状态是否合法，是否允许开机
 bit QueryIfSysThermalIsOK(void)
 	{
 	if(TempSensorStallTIM>9)return 0; //温度传感故障，不允许开机
@@ -42,7 +74,7 @@ bit QueryIfSysThermalIsOK(void)
 bit IsThermalStepdown(void)
 	{
 	//系统没开机返回0，如果当前处于电量查询阶段，也返回0避免干扰电量查询
-	if(VshowFSMState!=BattVdis_Waiting)return 0;
+	if(IsVshowFSMInAction())return 0;
 	if(CurrentMode->ModeIdx==Mode_OFF)return 0;
 	//NTC异常返回0
 	if(!Data.IsNTCOK)return 0;
@@ -153,4 +185,5 @@ void TempDegDetect(void)
 	VoltageLimit=NewVLIM;
 	IsUpdateFanSpeed=1; 		//温控结果更新，需要应用新的风扇参数更新转速
 	}
+/*****************************  End Of File  ******************************/
 	

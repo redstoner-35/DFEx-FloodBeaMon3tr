@@ -1,11 +1,36 @@
+/****************************************************************************/
+/** \file LowVoltageProt.c
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个文件是上层应用层逻辑，负责实现系统的低电量阶梯降档和自动关机
+								 逻辑，
+**	History:
+				2026年9月11日 Initial Release
+**	
+*****************************************************************************/
+/****************************************************************************/
+/*	include files
+*****************************************************************************/
 #include "BattDisplay.h"
 #include "ModeSel.h"
-#include "LowVoltProt.h"
 #include "OutputChannel.h"
 #include "SideKey.h"
+#include "stdbool.h"
 
-//内部变量
+/****************************************************************************/
+/*	Local pre-processor symbols/macros('#define') For Parameter definition
+****************************************************************************/
+#define BatteryAlertDelay 10  //电池警报延迟(1单位=0.125秒)
+#define BatteryFaultDelay 2 	//电池故障强制跳档/关机的延迟(1单位=0.125秒)
+
+/****************************************************************************/
+/*	Local variable definitions('static')
+****************************************************************************/	
 static xdata unsigned char BattAlertTimer; //电池低电压告警处理
+
+/****************************************************************************/
+/* Local Function implementation - 'static'
+****************************************************************************/	
 
 //低电量保护函数
 static void StartBattAlertTimer(void)
@@ -14,12 +39,20 @@ static void StartBattAlertTimer(void)
 	if(!BattAlertTimer)BattAlertTimer=1;
 	}	
 
-//电池低电量报警处理函数
+/****************************************************************************/
+/* Global Function implementation - Timer Handler
+****************************************************************************/		
+	
+//电池低电量报警计时器的处理函数
 void BattAlertTIMHandler(void)
 	{
 	//电量警报
 	if(BattAlertTimer&&BattAlertTimer<(BatteryAlertDelay+1))BattAlertTimer++;
 	}	
+	
+/****************************************************************************/
+/* Global Function implementation - Logic Handler
+****************************************************************************/		
 	
 //电池低电量保护函数
 void BatteryLowAlertProcess(bool IsNeedToShutOff,ModeIdxDef ModeJump)
@@ -52,4 +85,5 @@ void BatteryLowAlertProcess(bool IsNeedToShutOff,ModeIdxDef ModeJump)
 			SwitchToGear(ModeJump); //复位到指定挡位
 			}
 		}
-	}		
+	}	
+/*****************************  End Of File  ******************************/

@@ -5,7 +5,7 @@
 /** \Description 这个文件负责驱动系统的主函数声明
 **
 **	History:
-				2026年9月10日 Initial Release
+				2026年9月11日 Initial Release
 **	
 *****************************************************************************/
 /****************************************************************************/
@@ -30,6 +30,7 @@
 ****************************************************************************/	
 void SleepMgmt(void);
 void MaskUnusedIO(void);
+void LoadSleepTimer(void);
 
 /****************************************************************************/
 /*	main function ('main')
@@ -52,19 +53,24 @@ void main()
 	ThermalSystem_Init();  //初始化温控系统
 	MaskUnusedIO(); //屏蔽掉不用的IO
 	DisplayVBattAtStart(1); //上电时显示电池电压	
+	LoadSleepTimer();       //进入系统前加载一遍睡眠定时器
 	EnableADCAsync();       //使能ADC异步模式
   //主循环
 	while(1)
 		{
 		//实时处理	
 		SystemTelemHandler();//对ADC执行采集获取系统状态
-		SideKey_LogicHandler(); //处理侧按事务
+			
+		//处理按键事务，如果有按键按下，则加载睡眠定时器重置休眠延时	
+		SideKey_LogicHandler(); 
+		if(IsKeyEventOccurred())LoadSleepTimer();	
+
 		BatteryTelemHandler(); //处理电池遥测	
 		OverHeatProtect();  //处理过热保护
 		ModeSwitchFSM(); //挡位变换状态机
 		TempDegDetect();  //温度降额计算
 		OutputChannel_Calc(); //输出通道运算
-		PWM_OutputCtrlHandler(); //处理PWM输出事务		
+		PWM_OutputCtrlHandler(); //处理PWM输出事务			
 		//8Hz定时处理
 		if(!SysHFBitFlag)continue; //时间没到，跳过处理
     if(!TaskSel)
@@ -94,4 +100,4 @@ void main()
 		SysHFBitFlag=0;	
 		}
 	}
-/*************************  End Of File  ***********************/
+/*****************************  End Of File  ******************************/

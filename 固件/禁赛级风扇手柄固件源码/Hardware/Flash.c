@@ -1,5 +1,23 @@
+/****************************************************************************/
+/** \file UnusedIO.c
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个文件负责实现系统Flash和Data EEPROM的读写操作。供上层系统配
+								 置保存逻辑实现数据保存功能。
+**
+**	History:
+				2026年9月11日 Initial Release
+**	
+*****************************************************************************/
+/****************************************************************************/
+/*	include files
+*****************************************************************************/
 #include "cms8s6990.h"
 #include "Flash.h"
+
+/****************************************************************************/
+/* Global Function implementation - (in header files with 'extern')
+****************************************************************************/	
 
 //解锁/上锁Flash
 void SetFlashState(bit IsUnlocked)
@@ -37,3 +55,4 @@ void Flash_Operation(FlashOperationDef Operation,int ADDR,char *Data)
 	while(MCTRL & 0x01); //等待读取结束
 	if(Operation==DataFlash_Read)*Data=MDATA; //返回数据
 	}
+/*****************************  End Of File  ******************************/

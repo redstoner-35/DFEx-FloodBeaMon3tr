@@ -1,43 +1,36 @@
-#ifndef Delay
-#define Delay
+/************************************************************************************/
+/** \file delay.h
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个头文件负责声明系统时基生成和软件延时模块的函数和外部flag供其他地方
+								 调用。
 
-//宏定义
-//#define EnableMicroSecDelay //是否启用微秒延时
-//#define EnableHBCheck //是否开启心跳检查
-#define UseUnifiedSystemTimeBase   //启用统一的系统初始化函数
+**	History: Initial Release
+**	
+/************************************************************************************/
+#ifndef _Delay_
+#define _Delay_
 
-//系统心跳定时除能和flag
-extern volatile bit SysHFBitFlag;
-#define DisableSysHBTIM() T2CON=0x00;IE&=~0x20; //禁用系统心跳定时器，直接关闭定时器并除能中断
+/************************************************************************************/
+/* Extern Flags and Variable definition */
+/************************************************************************************/
+extern volatile bit SysHFBitFlag;  //系统定时心跳Flag
 
-//检查心跳定时器是否启动
-#ifdef EnableHBCheck
-void CheckIfHBTIMIsReady(void);
-#endif
+/************************************************************************************/
+/* Extern Functions definition */
+/************************************************************************************/
+void StartSystemTimeBase(void);  //初始化系统心跳定时器和延时模块
+void delay_ms(int ms);           //进行软件延时
 
 
+/************************************************************************************/
+/* Extern Fast Operation Macro definition */
+/************************************************************************************/
 
-//启动系统心跳计时器和延时计时器的初始化
-#ifdef UseUnifiedSystemTimeBase
-  
-	//使用统一初始化函数
-	void StartSystemTimeBase(void);
+//禁用系统心跳定时器，直接关闭定时器并除能中断
+#define DisableSysHBTIM() do{T2CON=0x00;IE&=(~0x20);}while(0) 
 
-#else
 
-	//使用独立初始化函数
-	void EnableSysHBTIM(void);
-	void delay_init();
+#endif /* _Delay_ */
 
-#endif
-
-//较长的延时
-void delay_ms(int ms);
-void delay_sec(int sec);
-
-//微秒级别短延时
-#ifdef EnableMicroSecDelay
-void delay_us(int us);
-#endif
-
-#endif
+/*********************************  End Of File  ************************************/

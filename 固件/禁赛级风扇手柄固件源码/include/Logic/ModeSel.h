@@ -1,6 +1,18 @@
-#ifndef MSEL
-#define MSEL
+/************************************************************************************/
+/** \file ModeSel.h
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个头文件负责声明系统的风扇输出控制逻辑的接口变量以及初始化和业务逻辑。
 
+**	History: Initial Release
+**	
+/************************************************************************************/
+#ifndef _ModeSel_
+#define _ModeSel_
+
+/************************************************************************************/
+/*	Global type definitions('typedef')
+*************************************************************************************/
 typedef enum
 	{
 	LVPROT_Disable=0,  //该挡位关闭低电量保护
@@ -50,33 +62,44 @@ typedef struct
 	ModeIdxDef ModeTargetWhen1H;	 //模式挡位切换设置，长按和单击+长按切换到的目标挡位
 	}ModeStrDef; 
 
-//参数配置
-#define PWMHoldSwitchDelay 14 //PWM模式换挡延迟
-#define HoldSwitchDelay 6 // 长按换挡延迟	
-#define SleepTimeOut 5 //休眠状态延时	
-#define ModeTotalDepth 9 //系统一共有几个挡位		
-#define TurboMaintainTime 100 //极速挡位下维持全速的时间（单位	S）	
-#define MaxTurboRefreshCount 6  //极速最大允许的强制刷新降档次数
-#define TurboRefreshCountCD 100 //极速挡位强制刷新次数的补充时间（单位S）	
-	
-//外部引用
+/************************************************************************************/
+/* Extern Variable definition - Mode control Systems                                */
+/************************************************************************************/
 extern ModeStrDef *CurrentMode; //当前模式结构体
 extern xdata ModeIdxDef LastMode; //上一个挡位	
 extern xdata float RampVoltage; //无极调速目标电压
 extern xdata float RampDuty; //无极调速目标占空比
+	
+/************************************************************************************/
+/* Extern Bit Flag definition - Mode control Systems                                */
+/************************************************************************************/	
 extern bit IsSystemLocked;        //系统是否已经锁定	
 extern bit IsEnableIdleLED;       //是否开启有源夜光
 extern bit IsEnable2SMode;        //是否开启2S模式	
 extern bit IsEnableBattCfgLock;   //是否开启电池配置锁	
 	
-//函数
-void RampConfigAutoSaveHandler(void); //无极调速自动保存处理
+/************************************************************************************/
+/* Extern Functions definition - Initialization & Logic Handler                     */
+/************************************************************************************/	
+void ModeFSMInit(void); 										//初始化模式状态机
+void ModeSwitchFSM(void); 									//挡位状态机	
+void HoldSwitchGearCmdHandler(void);        //长按换挡处理
+void RampConfigAutoSaveHandler(void); 		  //无极调速自动保存处理	
+
+/************************************************************************************/
+/* Extern Functions definition - Turbo timed stepdown related                       */
+/************************************************************************************/	
 void AddTurboRefreshCountWhenSleep(void); //睡眠过程中定时唤醒补充极亮强制刷新次数
-void TurboTimedStepDownPROC(void); //极速挡位时控降档处理
-void HoldSwitchGearCmdHandler(void); //长按换挡处理
-void SwitchToGear(ModeIdxDef TargetMode); //换到指定挡位	
-void ModeFSMInit(void); //初始化模式状态机		
-void ReturnToOFFState(void); //长按关机函数
-void ModeSwitchFSM(void); //挡位状态机	
+void TurboTimedStepDownPROC(void); 				//极速挡位时控降档处理
+
+
+/************************************************************************************/
+/* Extern Functions definition - Mode System operation                              */
+/************************************************************************************/	
+void SwitchToGear(ModeIdxDef TargetMode);  //换到指定挡位	
+void ReturnToOFFState(void); 						   //关机函数
+
 	
-#endif
+#endif /* _ModeSel_ */
+
+/********************************  End Of File  *************************************/

@@ -1,3 +1,17 @@
+/****************************************************************************/
+/** \file Sleep.c
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个文件是上层应用层逻辑，负责实现系统在长时间无操作后进入深度
+								 休眠节约电力消耗，以及实现定期唤醒采样电池电压实现指示LED欠压
+								 自杀的逻辑。
+**	History:
+				2026年9月11日 Initial Release
+**	
+*****************************************************************************/
+/****************************************************************************/
+/*	include files
+*****************************************************************************/
 #include "ModeSel.h"
 #include "cms8s6990.h"
 #include "OutputChannel.h"
@@ -9,11 +23,25 @@
 #include "delay.h"
 #include "LVDCtrl.h"
 
-//睡眠定时器
-volatile unsigned int SleepTimer;
 
-//函数声明
+/****************************************************************************/
+/*	Local pre-processor symbols/macros('#define') For Parameter definition
+****************************************************************************/
+#define SleepTimeOut 5 //休眠状态延时	
+
+/****************************************************************************/
+/*	Local variable definitions('static')
+****************************************************************************/	
+static xdata unsigned int SleepTimer;
+
+/****************************************************************************/
+/*	function Prototype('extern')
+****************************************************************************/	
 void MaskUnusedIO(void);
+
+/****************************************************************************/
+/* Local Function implementation - 'static'
+****************************************************************************/	
 
 //禁止所有系统外设
 static void DisableSysPeripheral(void)
@@ -38,18 +66,11 @@ static void EnableSysPeripheral(void)
 	LVD_Disable(); //关闭LVD
 	}
 
-//加载定时器时间
-void LoadSleepTimer(void)	
-	{
-	//加载睡眠时间
-	SleepTimer=8*SleepTimeOut; 		
-	}
-	
 //检测系统是否允许进入睡眠的条件
 static char QueryIsSystemNotAllowToSleep(void)
 	{
 	//系统在显示电池电压和版本号，不允许睡眠
-	if(VshowFSMState!=BattVdis_Waiting)return 1;
+	if(IsVshowFSMInAction())return 1;
 	//系统开机了
 	if(CurrentMode->ModeIdx!=Mode_OFF)return 1;
 	//允许睡眠
@@ -123,6 +144,17 @@ static void SleepProcHandler(void)
 	while(!SleepTimer);
 	}	
 	
+/****************************************************************************/
+/* Global Function implementation - export to other file with 'extern'
+****************************************************************************/		
+	
+//加载定时器时间
+void LoadSleepTimer(void)	
+	{
+	//加载睡眠时间
+	SleepTimer=8*SleepTimeOut; 		
+	}	
+	
 //睡眠管理函数
 void SleepMgmt(void)
 	{
@@ -134,4 +166,4 @@ void SleepMgmt(void)
 	//立即进入睡眠阶段
 	else SleepProcHandler();
 	}
-	
+/*****************************  End Of File  ******************************/

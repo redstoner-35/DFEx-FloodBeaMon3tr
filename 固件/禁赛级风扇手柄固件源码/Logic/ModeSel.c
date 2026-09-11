@@ -1,3 +1,17 @@
+/****************************************************************************/
+/** \file ModeSel.c
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个文件是上层应用层逻辑，负责实现系统的所有开关机、无级调速和
+								 锁定以及换挡操作逻辑。同时该文件实现了极亮模式下缓慢时控降档节
+								 约电池电力的处理。
+**	History:
+				2026年9月11日 Initial Release
+**	
+*****************************************************************************/
+/****************************************************************************/
+/*	include files
+*****************************************************************************/
 #include "ModeSel.h"
 #include "ADCCfg.h"
 #include "OutputChannel.h"
@@ -11,7 +25,24 @@
 #include "LowVoltProt.h"
 #include "SysConfig.h"
 
-code ModeStrDef ModeSettings[ModeTotalDepth]=
+
+/****************************************************************************/
+/*	Local pre-processor symbols/macros('#define') For Parameter definition
+****************************************************************************/
+#define ModeTotalDepth 9 //系统一共有几个挡位（这个别随便动，会炸！）
+
+#define PWMHoldSwitchDelay 14 //PWM模式长按换挡延迟(1单位=0.125秒)
+#define HoldSwitchDelay 6 		//电压长按换挡延迟(1单位=0.125秒)	
+
+#define TurboMaintainTime 100 	//极速挡位下维持全速的时间（单位	S）	
+#define MaxTurboRefreshCount 6  //极速最大允许的强制刷新降档次数
+#define TurboRefreshCountCD 100 //极速挡位强制刷新次数的补充时间（单位S）	
+
+
+/****************************************************************************/
+/*	Local constant definitions('static code',Stored in Code ROM)
+****************************************************************************/
+static code ModeStrDef ModeSettings[ModeTotalDepth]=
 	{
 		{
 		//关机状态
@@ -132,75 +163,45 @@ code ModeStrDef ModeSettings[ModeTotalDepth]=
 		}		
 	};
 	
-//全局变量(挡位)
-ModeStrDef *CurrentMode; //挡位结构体指针
-xdata ModeIdxDef LastMode; //挡位记忆存储
-xdata ModeIdxDef LastModeBeforeturbo; //记忆进入极速之前的挡位	
-xdata float RampVoltage; //无极调速目标电压
-xdata float RampDuty; //无极调速目标占空比
-bit IsSystemLocked;        //系统是否已经锁定
-bit IsEnableIdleLED;  //是否开启有源夜光	
-bit IsEnable2SMode; //是否开启2S输入模式
-bit IsEnableBattCfgLock; //是否开启电池配置锁	
-	
-//全局软件计时变量
-xdata unsigned char HoldChangeGearTIM; //挡位模式下长按换挡
 
-//内部变量
-static xdata char RampSpeedSaveTIM;          //无级调速配置保存计时
-static xdata TurboTimedStepDownDef TurboCfg; //极速配置
-static xdata char DisplayUnlockTIM; //指示系统解锁的计时器	
-static xdata int RampDivCNT; //无极调速分频计时器	
-static bit IsRampKeyStillHold; //无极调速是否一直按住	
-static bit IsNClickAndHoldAssert; //N击+长按事件是否触发
+/****************************************************************************/
+/*	Local variable definitions('static')
+****************************************************************************/	
 	
-//初始化模式状态机
-void ModeFSMInit(void)
-	{
-	unsigned char i;
-	unsigned long buf;
-	//进行变量初始化
-	CurrentMode=&ModeSettings[0];
-	LastMode=Mode_UltraLow;
-	IsSystemLocked=0;
-	IsNClickAndHoldAssert=0;
-	DisplayUnlockTIM=0;
-	RampDivCNT=10;
-	IsRampKeyStillHold=0;
-	RampSpeedSaveTIM=0;
-	TurboCfg.TurboRefreshCount=MaxTurboRefreshCount;
-	TurboCfg.TurboRefreshTIM=8*TurboRefreshCountCD;
-	//寻找指定挡位数据载入结果
-	for(i=0;i<ModeTotalDepth;i++)
-		{
-		//超低挡位填充系统下限数据
-		if(ModeSettings[i].ModeIdx==Mode_UltraLow)
-			{
-			VMinMaxCfg.SysMinSpeed=ModeSettings[i].Speed;
-			VMinMaxCfg.SysMinVolt=ModeSettings[i].TargetVOUT;
-			}
-		//极亮挡位填充极亮配置结构体
-		if(ModeSettings[i].ModeIdx==Mode_Turbo)
-			{
-			TurboCfg.TurboCurrentVoltage=ModeSettings[i].TargetVOUT;
-			TurboCfg.TurboCurrentDuty=(float)ModeSettings[i].Speed;
-			}
-		//高亮挡位填充最低占空比配置
-		if(ModeSettings[i].ModeIdx==Mode_High)
-			{
-			TurboCfg.TurboMinimumVoltage=ModeSettings[i].TargetVOUT;
-			TurboCfg.TurboMinimumDuty=(float)ModeSettings[i].Speed;			
-			}
-		}	
-	//读取无极调速和锁定配置并装载数据		
-	ReadSysConfig();	
-	//计算系统启动时的占空比结果
-	buf=(unsigned long)VMinMaxCfg.SysMinSpeed;
-	buf*=FanPWMStepConstant;
-	buf/=100;
-	VMinMaxCfg.SysStartUpDuty=(int)(buf&0x7FFF);
-	}	
+//内部软件定时变量
+static xdata unsigned char HoldChangeGearTIM; 	//挡位模式下长按换挡
+static xdata char RampSpeedSaveTIM;          	  //无级调速配置保存计时
+static xdata TurboTimedStepDownDef TurboCfg; 	  //极速配置
+static xdata char DisplayUnlockTIM;             //指示系统解锁的计时器	
+static xdata int RampDivCNT;                    //无极调速分频计时器	
 	
+//内部Flag	
+static bit IsRampKeyStillHold;                  //无极调速是否一直按住	
+static bit IsNClickAndHoldAssert;               //N击+长按事件是否触发
+
+	
+/****************************************************************************/
+/*	Global variable definitions(declared in header file with 'extern')
+****************************************************************************/	
+ModeStrDef *CurrentMode; 							//挡位结构体指针
+xdata ModeIdxDef LastMode; 						//挡位记忆存储
+xdata ModeIdxDef LastModeBeforeturbo; //记忆进入极速之前的挡位	
+xdata float RampVoltage; 						  //无极调速目标电压
+xdata float RampDuty; 								//无极调速目标占空比
+
+	
+/****************************************************************************/
+/*	Global flag definitions(declared in header file with 'extern')
+****************************************************************************/	
+bit IsSystemLocked;        						//系统是否已经锁定
+bit IsEnableIdleLED;                  //是否开启有源夜光	
+bit IsEnable2SMode; 							    //是否开启2S输入模式
+bit IsEnableBattCfgLock;              //是否开启电池配置锁		
+
+/****************************************************************************/
+/* Local Function implementation - Gear switching related
+****************************************************************************/	
+
 //加载极速模式配置（同时令系统进入极速模式）
 static void LoadTurboConfig(void)
 	{
@@ -227,139 +228,6 @@ static void LoadTurboConfig(void)
 	TurboCfg.TurboCurrentDuty=CurrentMode->Speed;
 	TurboCfg.FullSpeedTime=TurboMaintainTime*8;
 	}
-	
-//睡眠过程中定时唤醒补充极亮强制刷新次数
-void AddTurboRefreshCountWhenSleep(void)
-	{
-	//如果次数没有达到最大值则增加次数
-	if(TurboCfg.TurboRefreshCount<MaxTurboRefreshCount)TurboCfg.TurboRefreshCount++;
-	}
-	
-//极速挡位时控降档处理
-void TurboTimedStepDownPROC(void)
-	{
-	extern bit IsEnablePWMFan;	
-	//非极速挡位停止计时并执行刷新程序
-	if(CurrentMode->ModeIdx!=Mode_Turbo)
-		{
-		if(TurboCfg.TurboRefreshCount==MaxTurboRefreshCount)return;
-    if(TurboCfg.TurboRefreshTIM)TurboCfg.TurboRefreshTIM--;
-		else
-			{
-			//冷却时间到，极速强制刷新次数+1
-			TurboCfg.TurboRefreshTIM=8*TurboRefreshCountCD;
-			TurboCfg.TurboRefreshCount++;
-			}
-	  return;
-		}
-	//计时器还在进行计时中
-	if(TurboCfg.FullSpeedTime)TurboCfg.FullSpeedTime--;
-	//电压模式，开始线性降档
-	else if(!IsEnablePWMFan)
-		{
-		if(TurboCfg.TurboCurrentVoltage>TurboCfg.TurboMinimumVoltage)TurboCfg.TurboCurrentVoltage-=0.01;
-		else if(LastModeBeforeturbo==Mode_Ramp)
-			{
-			//挡位减到最低了且极速是从无极调速状态启动的
-			TurboCfg.TurboCurrentVoltage=TurboCfg.TurboMinimumVoltage;
-			if(RampVoltage<TurboCfg.TurboCurrentVoltage)RampVoltage=TurboCfg.TurboCurrentVoltage; 
-			SwitchToGear(Mode_Ramp);
-			}
-		//从非高亮模式启动的直接跳到高亮
-		else SwitchToGear(Mode_High);
-		//标记风扇转速数据已被更新，需要重新计算结果
-		IsUpdateFanSpeed=1;
-		}
-	//PWM模式，开始线性减少占空比
-	else
-		{
-		if(TurboCfg.TurboCurrentDuty>TurboCfg.TurboMinimumDuty)TurboCfg.TurboCurrentDuty-=0.04;
-		else if(LastModeBeforeturbo==Mode_Ramp)
-			{
-			TurboCfg.TurboCurrentDuty=TurboCfg.TurboMinimumDuty;
-			if(RampDuty<TurboCfg.TurboCurrentDuty)RampDuty=TurboCfg.TurboCurrentDuty;
-			SwitchToGear(Mode_Ramp);
-			}
-		//从非高亮模式启动的直接跳到高亮
-		else SwitchToGear(Mode_High);		
-		//标记风扇转速数据已被更新，需要重新计算结果
-		IsUpdateFanSpeed=1;
-		}
-	}
-
-//获取系统是否在boost Mode(狂暴模式无降档一直100%)
-bit QueryIsSystemInBoostMode(void)	
-	{
-	if(VshowFSMState!=BattVdis_Waiting)return 0; //电量查询时返回0，避免提示干扰电量查询	
-	return CurrentMode->ModeIdx==Mode_Boost?1:0;
-	}
-	
-//换挡函数
-void SwitchToGear(ModeIdxDef TargetMode)
-	{
-	unsigned char i;
-	//要换的挡位等于当前值不执行查找
-	if(CurrentMode->ModeIdx==TargetMode)return;
-	//进行换挡循环	
-	for(i=0;i<ModeTotalDepth;i++)if(ModeSettings[i].ModeIdx==TargetMode)
-		{
-		CurrentMode=&ModeSettings[i];
-		break;
-		}
-	}	
-
-//无极调速自动保存处理
-void RampConfigAutoSaveHandler(void)
-	{
-	//非无极调速模式不进行计时
-	if(CurrentMode->ModeIdx!=Mode_Ramp)return;
-	//无极调速模式下每次变更都进行计时，计时时间到后自动保存配置
-	if(RampSpeedSaveTIM>1)RampSpeedSaveTIM--;
-	else if(RampSpeedSaveTIM==1)
-		{
-		RampSpeedSaveTIM=0;
-		if(CellVoltage<3000)return;  //电池电压过低，单片机供电不足时写入Flash会导致数据异常，所以禁止保存
-		SaveSysConfig(0);
-		}
-	}	
-	
-//长按换挡的间隔命令生成
-void HoldSwitchGearCmdHandler(void)
-	{
-	char buf,SwitchDelay;
-	extern bit IsEnablePWMFan;
-	//无极调速模式，禁止长按换挡
-	if(CurrentMode->ModeIdx==Mode_Ramp)HoldChangeGearTIM=0;
-	//按键松开或者系统处在非正常状态，计时器和Flag复位
-	else if(!getSideKeyHoldEvent()&&!getSideKey1HEvent())HoldChangeGearTIM=0;
-	else //执行换挡程序
-		{
-		//动态计算换挡延时	
-		SwitchDelay=IsEnablePWMFan?PWMHoldSwitchDelay:HoldSwitchDelay;
-		//进行换挡处理	
-		buf=HoldChangeGearTIM&0x1F; //取出TIM值
-		if(!buf&&!(HoldChangeGearTIM&0x40))HoldChangeGearTIM|=getSideKey1HEvent()?0x20:0x80;//令换挡命令位1指示换挡可以继续
-		HoldChangeGearTIM&=0xE0; //去除掉原始的TIM值
-		if(buf<SwitchDelay&&!(HoldChangeGearTIM&0x40))buf++;
-		else buf=0;  //时间到，清零结果
-		HoldChangeGearTIM|=buf; //把数值写回去
-		}
-	//执行定时器处理
-	if(DisplayUnlockTIM)DisplayUnlockTIM--;
-	}	
-
-//长按关机函数	
-void ReturnToOFFState(void)
-	{
-	//已经关机了
-  if(CurrentMode->ModeIdx==Mode_OFF)return;
-	//非极速和无极调速挡位进行记忆处理	
-	if(CurrentMode->ModeIdx<=Mode_High)LastMode=CurrentMode->ModeIdx;
-	//执行关机处理，强制跳回到关机挡位
-	TargetVoltage=0;
-	TargetfanSpeed=0;
-	SwitchToGear(Mode_OFF); 
-	}	
 
 //查询挡位的目标电池电压
 static int QueryModeRequiredBattVolt(ModeIdxDef TargetMode)	
@@ -382,6 +250,10 @@ static void ResetRampToMinimum(void)
 	RampDuty=(float)VMinMaxCfg.SysMinSpeed;      //强制系统回到最低速度
 	}
 
+/****************************************************************************/
+/* Local Function implementation - Gear switching FSM Table Related
+****************************************************************************/		
+	
 //进行关机和开机状态执行N击+长按事件处理的函数
 static void ProcessNClickAndHoldHandler(void)
 	{
@@ -514,6 +386,10 @@ static void ModeSwitchFSMTableDriver(char ClickCount)
 	
 	if(CurrentMode->LVConfig)BatteryLowAlertProcess(CurrentMode->LVConfig&0x02,CurrentMode->ModeWhenLVAutoFall); //执行低电量处理
 	}	
+	
+/****************************************************************************/
+/* Local Function implementation - Gear & Ramp Mode FSM Driver
+****************************************************************************/		
 	
 //无极调速处理流程
 static bool RampFSMPROC(void)
@@ -736,8 +612,99 @@ static bool ModeFSMDrvPROC(char ClickCount)
 	if(Rampresult)return true;	//无级调节模式下如果调节发生，则更新风扇速度	
 	if(ModeBuf!=CurrentMode->ModeIdx)return true; //挡位发生变更时刷新风扇状态
 	return false;	
-	}
+	}	
+	
+/****************************************************************************/
+/* Global Function implementation - Initialization & Mode Logic Handler
+****************************************************************************/		
 
+//初始化模式状态机
+void ModeFSMInit(void)
+	{
+	unsigned char i;
+	unsigned long buf;
+	//进行变量初始化
+	CurrentMode=&ModeSettings[0];
+	LastMode=Mode_UltraLow;
+	IsSystemLocked=0;
+	IsNClickAndHoldAssert=0;
+	DisplayUnlockTIM=0;
+	RampDivCNT=10;
+	IsRampKeyStillHold=0;
+	RampSpeedSaveTIM=0;
+	TurboCfg.TurboRefreshCount=MaxTurboRefreshCount;
+	TurboCfg.TurboRefreshTIM=8*TurboRefreshCountCD;
+	//寻找指定挡位数据载入结果
+	for(i=0;i<ModeTotalDepth;i++)
+		{
+		//超低挡位填充系统下限数据
+		if(ModeSettings[i].ModeIdx==Mode_UltraLow)
+			{
+			VMinMaxCfg.SysMinSpeed=ModeSettings[i].Speed;
+			VMinMaxCfg.SysMinVolt=ModeSettings[i].TargetVOUT;
+			}
+		//极亮挡位填充极亮配置结构体
+		if(ModeSettings[i].ModeIdx==Mode_Turbo)
+			{
+			TurboCfg.TurboCurrentVoltage=ModeSettings[i].TargetVOUT;
+			TurboCfg.TurboCurrentDuty=(float)ModeSettings[i].Speed;
+			}
+		//高亮挡位填充最低占空比配置
+		if(ModeSettings[i].ModeIdx==Mode_High)
+			{
+			TurboCfg.TurboMinimumVoltage=ModeSettings[i].TargetVOUT;
+			TurboCfg.TurboMinimumDuty=(float)ModeSettings[i].Speed;			
+			}
+		}	
+	//读取无极调速和锁定配置并装载数据		
+	ReadSysConfig();	
+	//计算系统启动时的占空比结果
+	buf=(unsigned long)VMinMaxCfg.SysMinSpeed;
+	buf*=FanPWMStepConstant();
+	buf/=100;
+	VMinMaxCfg.SysStartUpDuty=(int)(buf&0x7FFF);
+	}	
+
+//无极调速自动保存处理
+void RampConfigAutoSaveHandler(void)
+	{
+	//非无极调速模式不进行计时
+	if(CurrentMode->ModeIdx!=Mode_Ramp)return;
+	//无极调速模式下每次变更都进行计时，计时时间到后自动保存配置
+	if(RampSpeedSaveTIM>1)RampSpeedSaveTIM--;
+	else if(RampSpeedSaveTIM==1)
+		{
+		RampSpeedSaveTIM=0;
+		if(CellVoltage<3000)return;  //电池电压过低，单片机供电不足时写入Flash会导致数据异常，所以禁止保存
+		SaveSysConfig(0);
+		}
+	}	
+	
+//长按换挡的间隔命令生成
+void HoldSwitchGearCmdHandler(void)
+	{
+	char buf,SwitchDelay;
+	extern bit IsEnablePWMFan;
+	//无极调速模式，禁止长按换挡
+	if(CurrentMode->ModeIdx==Mode_Ramp)HoldChangeGearTIM=0;
+	//按键松开或者系统处在非正常状态，计时器和Flag复位
+	else if(!getSideKeyHoldEvent()&&!getSideKey1HEvent())HoldChangeGearTIM=0;
+	else //执行换挡程序
+		{
+		//动态计算换挡延时	
+		SwitchDelay=IsEnablePWMFan?PWMHoldSwitchDelay:HoldSwitchDelay;
+		//进行换挡处理	
+		buf=HoldChangeGearTIM&0x1F; //取出TIM值
+		if(!buf&&!(HoldChangeGearTIM&0x40))HoldChangeGearTIM|=getSideKey1HEvent()?0x20:0x80;//令换挡命令位1指示换挡可以继续
+		HoldChangeGearTIM&=0xE0; //去除掉原始的TIM值
+		if(buf<SwitchDelay&&!(HoldChangeGearTIM&0x40))buf++;
+		else buf=0;  //时间到，清零结果
+		HoldChangeGearTIM|=buf; //把数值写回去
+		}
+	//执行定时器处理
+	if(DisplayUnlockTIM)DisplayUnlockTIM--;
+	}	
+		
 //挡位状态机
 void ModeSwitchFSM(void)
 	{
@@ -752,7 +719,7 @@ void ModeSwitchFSM(void)
 	if(IsSystemLocked)
 		{
 		//当前系统正在显示电池的电压状态值，不处理所有按键事件
-    if(VshowFSMState!=BattVdis_Waiting)			
+    if(IsVshowFSMInAction())			
 			{
 			ClearShortPressEvent();
 			getSideKeyLongPressEvent();  //清除所有按键事件
@@ -804,3 +771,104 @@ void ModeSwitchFSM(void)
 		}
 	}
 
+/****************************************************************************/
+/* Global Function implementation - Turbo mode timed stepdown related
+****************************************************************************/		
+
+//睡眠过程中定时唤醒补充极亮强制刷新次数
+void AddTurboRefreshCountWhenSleep(void)
+	{
+	//如果次数没有达到最大值则增加次数
+	if(TurboCfg.TurboRefreshCount<MaxTurboRefreshCount)TurboCfg.TurboRefreshCount++;
+	}
+	
+//极速挡位时控降档处理
+void TurboTimedStepDownPROC(void)
+	{
+	extern bit IsEnablePWMFan;	
+	//非极速挡位停止计时并执行刷新程序
+	if(CurrentMode->ModeIdx!=Mode_Turbo)
+		{
+		if(TurboCfg.TurboRefreshCount==MaxTurboRefreshCount)return;
+    if(TurboCfg.TurboRefreshTIM)TurboCfg.TurboRefreshTIM--;
+		else
+			{
+			//冷却时间到，极速强制刷新次数+1
+			TurboCfg.TurboRefreshTIM=8*TurboRefreshCountCD;
+			TurboCfg.TurboRefreshCount++;
+			}
+	  return;
+		}
+	//计时器还在进行计时中
+	if(TurboCfg.FullSpeedTime)TurboCfg.FullSpeedTime--;
+	//电压模式，开始线性降档
+	else if(!IsEnablePWMFan)
+		{
+		if(TurboCfg.TurboCurrentVoltage>TurboCfg.TurboMinimumVoltage)TurboCfg.TurboCurrentVoltage-=0.01;
+		else if(LastModeBeforeturbo==Mode_Ramp)
+			{
+			//挡位减到最低了且极速是从无极调速状态启动的
+			TurboCfg.TurboCurrentVoltage=TurboCfg.TurboMinimumVoltage;
+			if(RampVoltage<TurboCfg.TurboCurrentVoltage)RampVoltage=TurboCfg.TurboCurrentVoltage; 
+			SwitchToGear(Mode_Ramp);
+			}
+		//从非高亮模式启动的直接跳到高亮
+		else SwitchToGear(Mode_High);
+		//标记风扇转速数据已被更新，需要重新计算结果
+		IsUpdateFanSpeed=1;
+		}
+	//PWM模式，开始线性减少占空比
+	else
+		{
+		if(TurboCfg.TurboCurrentDuty>TurboCfg.TurboMinimumDuty)TurboCfg.TurboCurrentDuty-=0.04;
+		else if(LastModeBeforeturbo==Mode_Ramp)
+			{
+			TurboCfg.TurboCurrentDuty=TurboCfg.TurboMinimumDuty;
+			if(RampDuty<TurboCfg.TurboCurrentDuty)RampDuty=TurboCfg.TurboCurrentDuty;
+			SwitchToGear(Mode_Ramp);
+			}
+		//从非高亮模式启动的直接跳到高亮
+		else SwitchToGear(Mode_High);		
+		//标记风扇转速数据已被更新，需要重新计算结果
+		IsUpdateFanSpeed=1;
+		}
+	}
+
+/****************************************************************************/
+/* Global Function implementation - gear switching operation & query API
+****************************************************************************/		
+
+//获取系统是否在boost Mode(狂暴模式无降档一直100%)
+bit QueryIsSystemInBoostMode(void)	
+	{
+	if(IsVshowFSMInAction())return 0; //电量查询时返回0，避免提示干扰电量查询	
+	return CurrentMode->ModeIdx==Mode_Boost?1:0;
+	}
+	
+//换挡函数
+void SwitchToGear(ModeIdxDef TargetMode)
+	{
+	unsigned char i;
+	//要换的挡位等于当前值不执行查找
+	if(CurrentMode->ModeIdx==TargetMode)return;
+	//进行换挡循环	
+	for(i=0;i<ModeTotalDepth;i++)if(ModeSettings[i].ModeIdx==TargetMode)
+		{
+		CurrentMode=&ModeSettings[i];
+		break;
+		}
+	}	
+
+//长按关机函数	
+void ReturnToOFFState(void)
+	{
+	//已经关机了
+  if(CurrentMode->ModeIdx==Mode_OFF)return;
+	//非极速和无极调速挡位进行记忆处理	
+	if(CurrentMode->ModeIdx<=Mode_High)LastMode=CurrentMode->ModeIdx;
+	//执行关机处理，强制跳回到关机挡位
+	TargetVoltage=0;
+	TargetfanSpeed=0;
+	SwitchToGear(Mode_OFF); 
+	}	
+/*****************************  End Of File  ******************************/

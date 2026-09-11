@@ -1,3 +1,16 @@
+/****************************************************************************/
+/** \file SysConfig.c
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个文件是上层应用层逻辑，负责实现驱动设置的非易失性滚动存储和
+								 驱动设置的校验、读取、写入。
+**	History:
+				2026年9月11日 Initial Release
+**	
+*****************************************************************************/
+/****************************************************************************/
+/*	include files
+*****************************************************************************/
 #include "cms8s6990.h"
 #include "ModeSel.h"
 #include "SysConfig.h"
@@ -8,10 +21,65 @@
 #include "SysReset.h"
 #include "OutputChannel.h"
 
-//内部全局
-static xdata unsigned int CurrentIdx;
-static xdata u8 CurrentCRC;
+/****************************************************************************/
+/*	Local pre-processor symbols/macros('#define') For Parameter definition
+****************************************************************************/
+#define	DataFlashLen 0x3FF  //CMS8S6990单片机的数据区有1KByte，寻址范围是0-3FF
 
+
+/****************************************************************************/
+/*	Local pre-processor symbols/macros('#define') For Parameter parsing
+
+Note: 以下的宏请勿修改，否则会导致配置存储模块工作异常！
+****************************************************************************/
+#define SysCfgGroupLen (DataFlashLen/sizeof(SysROMImg))-1 //可用的配置组合长度
+	
+//位域压缩储存的mask定义
+#define IsLocked_MSK 0x01  //是否锁定 bit1
+#define IsEnableIdleLED_MSK 0x02 //是否开启有源夜光 bit2
+#define IsEnable2SMode_MSK 0x04 //是否开启2串模式 bit3
+#define IsEnableBattCfgLock_MSK 0x08 //是否开启电池串数配置锁 bit4
+
+/****************************************************************************/
+/*	Local type definitions('typedef')
+*****************************************************************************/
+
+//存储类型声明
+typedef struct
+	{
+	float RampDuty;
+	float RampVout;
+  unsigned char BitfieldMem1;
+	}SysStorDef;
+	
+typedef union
+	{
+	SysStorDef Data;
+	char ByteBuf[sizeof(SysStorDef)];
+	}SysDataUnion;
+
+typedef struct
+	{
+	SysDataUnion SysConfig;
+	char CheckSum;
+	}SysROMImageDef;
+
+typedef union
+	{
+	SysROMImageDef Data;
+	char ByteBuf[sizeof(SysROMImageDef)];
+	}SysROMImg;
+	
+/****************************************************************************/
+/*	Local variable definitions('static')
+****************************************************************************/
+static xdata unsigned int CurrentIdx;   //储存当前配置区段的index
+static xdata u8 CurrentCRC;             //储存当前配置的CRC8
+
+/****************************************************************************/
+/* Local Function implementation - Checksum value Calculation
+****************************************************************************/		
+	
 //CRC-8计算 
 static u8 PEC8Check(char *DIN,char Len)
 {
@@ -34,6 +102,10 @@ static u8 PEC8Check(char *DIN,char Len)
  //输出结果
  return crcbuf;
 }
+
+/****************************************************************************/
+/* Local Function implementation - EEPROM operation
+****************************************************************************/	
 
 //从EEPROM内寻找最后的一组系统配置
 static int SearchSysConfig(SysROMImg *ROMData)
@@ -124,7 +196,12 @@ static void ShowEPROMCorrupted(void)
 	TriggerSoftwareReset();
 	}
 	
-//读取无极调速配置
+
+/****************************************************************************/
+/* Global Function implementation - exported for Config operation
+****************************************************************************/			
+
+//读取驱动的系统配置
 void ReadSysConfig(void)
 	{
 	xdata SysROMImg ROMData;
@@ -159,7 +236,7 @@ void ReadSysConfig(void)
 	SetFlashState(0);
 	}
 
-//保存无极调速配置
+//保存驱动的系统配置到Flash（可以选择是强制覆写还是跳过一样内容的保存以节约ROM写入次数）
 void SaveSysConfig(bit IsForceSave)
 	{
 	unsigned char i,BFBuf=0;
@@ -197,3 +274,4 @@ void SaveSysConfig(bit IsForceSave)
 	CurrentCRC=SavedData.Data.CheckSum; //保存本次index的CRC8
 	SetFlashState(0);//写入操作完毕，锁定flash	
 	}	
+/*****************************  End Of File  ******************************/

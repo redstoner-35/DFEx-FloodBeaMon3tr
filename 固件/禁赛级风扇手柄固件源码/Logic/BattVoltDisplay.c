@@ -1,3 +1,16 @@
+/****************************************************************************/
+/** \file BattVoltDisplay.c
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个文件是上层应用层逻辑，负责实现系统的电池和温度报告，电池低
+								 电量降档和关机保护以及电量显示的指示灯控制等逻辑。
+**	History:
+				2026年9月11日 Initial Release
+**	
+*****************************************************************************/
+/****************************************************************************/
+/*	include files
+*****************************************************************************/
 #include "ADCCfg.h"
 #include "LEDMgmt.h"
 #include "delay.h"
@@ -9,23 +22,66 @@
 #include "SysConfig.h"
 #include "SysReset.h"
 
-//内部flag
+
+/****************************************************************************/
+/*	Local pre-processor symbols/macros('#define') For Parameter definition
+****************************************************************************/
+
+//等效单节电池电压数据的平均次数(用于内部逻辑的低压保护,电量显示和电量不足跳档)
+#define VBattAvgCount 40 
+
+/****************************************************************************/
+/*	Local type definitions('typedef')
+*****************************************************************************/
+
+//电池电压平均计算结构体声明
+typedef struct
+	{
+	int Min;
+  int Max;
+	long AvgBuf;
+	unsigned char Count;
+	}AverageCalcDef;	
+
+typedef enum
+	{
+  BattVdis_Waiting, //等待显示阶段
+	BattVdis_PrepareDis, //准备显示
+	BattVdis_DelayBeforeDisplay, //延迟一段时间
+	BattVdis_Show10V, //显示十位
+	BattVdis_Gap10to1V, //十位和个位之间的等待
+	BattVdis_Show1V, //显示个位
+	BattVdis_Gap1to0_1V, //个位和十分位之间的等待
+	BattVdis_Show0_1V, //显示小数点后一位(0.1V)
+	BattVdis_WaitShowChargeLvl, //等待一段时间后显示当前电量
+	BattVdis_ShowChargeLvl, //显示电池电量的等待
+	BattVdis_WaitShowTempState,
+	BattVdis_ShowTempState	
+	}BattVshowFSMDef; //电池电量显示处理	
+	
+/****************************************************************************/
+/*	Global variable definitions(declared in header file with 'extern')
+****************************************************************************/
 bit IsBatteryAlert; //电池电压低于警告值	
 bit IsBatteryFault; //电池电压低于保护值		
+xdata int CellVoltage; //等效单节电池电压
+xdata unsigned char CommonSysFSMTIM;  //电压显示计时器
 
-//内部变量
+
+/****************************************************************************/
+/*	Local variable definitions('static')
+****************************************************************************/
 static xdata unsigned char BattShowTimer=0; //电池电量显示计时
 static xdata unsigned char OneLMShowBattStateTimer=0; //1LM模式下显示电池状态的计时器
 static xdata AverageCalcDef BattVolt;	
 static xdata int VbattSample; //取样的电池电压
 static xdata BattStatusDef BattState; //电池电量标记位
 static bit IsReportingTemperature=0; //报告温度
+static xdata BattVshowFSMDef VshowFSMState; //电池电压显示所需的计时器和状态机转移
 
-//外部全局变量
-xdata int CellVoltage; //等效单节电池电压
-xdata unsigned char CommonSysFSMTIM;  //电压显示计时器
-xdata BattVshowFSMDef VshowFSMState; //电池电压显示所需的计时器和状态机转移
-
+/****************************************************************************/
+/*	Local constant definitions('static code',Stored in Code ROM)
+****************************************************************************/
 //内部使用的先导显示表
 static code LEDStateDef VShowIndexCode[]=
 	{
@@ -34,38 +90,81 @@ static code LEDStateDef VShowIndexCode[]=
 	LED_Red  //绿黄红过度
 	};
 
-//启动电池电压显示
-void TriggerVshowDisplay(void)	
-	{
-	if(VshowFSMState!=BattVdis_Waiting)return; //非等待显示状态禁止操作
-	VshowFSMState=BattVdis_PrepareDis;	
-	if(GetIfFanOutputEnabled())
-		{
-		if(LEDMode!=LED_OFF)CommonSysFSMTIM=8; //指示灯点亮状态查询电量，熄灭LED等一会
-		LEDMode=LED_OFF;
-		}	
-	IsReportingTemperature=0; //电压报告模式
-	//进行电压取样(缩放为LSB=0.01V)
-	VbattSample=(int)(Data.RawBattVolt*100); 		
-	}		
+/****************************************************************************/
+/* Local Function implementation - Battery State Report FSM & Avg Related
+****************************************************************************/	
 
-//启动系统温度显示
-void TriggerTShowDisplay(void)
+//复位电池电压检测缓存
+static void ResetBattAvg(void)	
 	{
-	if(!Data.IsNTCOK||VshowFSMState!=BattVdis_Waiting)return; //非等待显示状态禁止操作
-	//准备显示状态机
-	VshowFSMState=BattVdis_PrepareDis;	
-	if(GetIfFanOutputEnabled())
+	BattVolt.Min=32766;
+	BattVolt.Max=-32766; //复位最大最小捕获器
+	BattVolt.Count=0;
+  BattVolt.AvgBuf=0; //清除平均计数器和缓存
+	}	
+	
+//根据电池状态机设置LED指示电池电量
+static void SetPowerLEDBasedOnVbatt(void)	
+	{
+	switch(BattState)
 		{
-		if(LEDMode!=LED_OFF)CommonSysFSMTIM=8; //指示灯点亮状态查询电量，熄灭LED等一会
-		LEDMode=LED_OFF;
-		}	
-	IsReportingTemperature=1; //温度报告模式	
-	//进行温度取样
-	if(IsNegative8(Data.Systemp))VbattSample=(int)Data.Systemp*-10;
-	else VbattSample=(int)Data.Systemp*10;
+		 case Battery_Plenty:LEDMode=LED_Green;break; //电池电量充足绿色常亮
+		 case Battery_Mid:LEDMode=LED_Amber;break; //电池电量中等黄色常亮
+		 case Battery_Low:LEDMode=LED_Red;break;//电池电量不足
+		 case Battery_VeryLow:LEDMode=LED_RedBlink;break; //电池电量严重不足红色慢闪
+		}
 	}
-
+	
+//电池电量状态机
+static void BatteryStateFSM(void)
+	{
+	xdata int Thres;
+	xdata float buf;
+	//计算转灯阈值
+	if(TargetfanSpeed<(float)20)buf=0;
+  buf=TargetfanSpeed-(float)20;                  //计算风扇速度和目标的Δ值		
+	buf=(float)3700-((float)300*(buf/(float)80));  //阈值变化数值=(风扇速度Δ值/风扇速度变化范围的总值)*电压变化的总阈值,并计算出最终转黄灯阈值（3700-Δ量）
+  Thres=(int)buf;
+	//状态机处理	
+	switch(BattState) 
+		 {
+		 //电池电量充足
+		 case Battery_Plenty: 
+				if(CellVoltage<Thres)BattState=Battery_Mid; //电池电压小于3.7V，回到电量中等状态
+			  break;
+		 //电池电量较为充足
+		 case Battery_Mid:
+			  if(CellVoltage>(Thres+200))BattState=Battery_Plenty; //电池电压大于阈值，回到充足状态
+				if(CellVoltage<(Thres-200))BattState=Battery_Low; //电池电压低于阈值则切换到电量低的状态
+				break;
+		 //电池电量不足
+		 case Battery_Low:
+		    if(CellVoltage>Thres)BattState=Battery_Mid; //电池电压高于3.6，切换到电量中等的状态
+			  if(CellVoltage<2950)BattState=Battery_VeryLow; //电池电压低于2.95，报告严重不足
+		    break;
+		 //电池电量严重不足
+		 case Battery_VeryLow:
+			  if(CellVoltage>(Thres-200))BattState=Battery_Low; //电池电压回升到指定阈值，跳转到电量不足阶段
+		    break;
+		 }
+	}
+	
+/****************************************************************************/
+/* Local Function implementation - Temperature & Voltage Report FSM
+****************************************************************************/		
+	
+//电池采样显示电压
+static LEDStateDef VshowEnter_ShowIndex(void)
+	{
+	char Index;
+	if(CommonSysFSMTIM>9)
+		{
+		Index=((CommonSysFSMTIM-8)>>1)-1;
+		return VShowIndexCode[Index];
+		}
+	return LED_OFF; //红黄绿闪烁之后(如果是高精度显示模式则为绿红黄)等待
+	}	
+	
 //控制LED侧按产生闪烁指示电池电压的处理
 static void VshowGenerateSideStrobe(LEDStateDef Color,BattVshowFSMDef NextStep)
 	{
@@ -94,30 +193,7 @@ static void VshowFSMGenTIMValue(int Vsample,BattVshowFSMDef NextStep)
 		else CommonSysFSMTIM=(4*Vsample)-1; //配置显示的时长
 		VshowFSMState=NextStep; //执行下一步显示
 		}
-	}
-	
-//根据电池状态机设置LED指示电池电量
-static void SetPowerLEDBasedOnVbatt(void)	
-	{
-	switch(BattState)
-		{
-		 case Battery_Plenty:LEDMode=LED_Green;break; //电池电量充足绿色常亮
-		 case Battery_Mid:LEDMode=LED_Amber;break; //电池电量中等黄色常亮
-		 case Battery_Low:LEDMode=LED_Red;break;//电池电量不足
-		 case Battery_VeryLow:LEDMode=LED_RedBlink;break; //电池电量严重不足红色慢闪
-		}
-	}
-//电池采样显示电压
-LEDStateDef VshowEnter_ShowIndex(void)
-	{
-	char Index;
-	if(CommonSysFSMTIM>9)
-		{
-		Index=((CommonSysFSMTIM-8)>>1)-1;
-		return VShowIndexCode[Index];
-		}
-	return LED_OFF; //红黄绿闪烁之后(如果是高精度显示模式则为绿红黄)等待
-	}
+	}	
 
 //电池详细电压显示的状态机处理
 static void BatVshowFSM(void)
@@ -215,50 +291,81 @@ static void BatVshowFSM(void)
 			else if(!getSideKeyNClickAndHoldEvent())VshowFSMState=BattVdis_Waiting; //用户仍然按下按键，等待用户松开,松开后回到等待阶段
       break;
 		}
-	}
-//电池电量状态机
-static void BatteryStateFSM(void)
-	{
-	xdata int Thres;
-	xdata float buf;
-	//计算转灯阈值
-	if(TargetfanSpeed<(float)20)buf=0;
-  buf=TargetfanSpeed-(float)20;                  //计算风扇速度和目标的Δ值		
-	buf=(float)3700-((float)300*(buf/(float)80));  //阈值变化数值=(风扇速度Δ值/风扇速度变化范围的总值)*电压变化的总阈值,并计算出最终转黄灯阈值（3700-Δ量）
-  Thres=(int)buf;
-	//状态机处理	
-	switch(BattState) 
-		 {
-		 //电池电量充足
-		 case Battery_Plenty: 
-				if(CellVoltage<Thres)BattState=Battery_Mid; //电池电压小于3.7V，回到电量中等状态
-			  break;
-		 //电池电量较为充足
-		 case Battery_Mid:
-			  if(CellVoltage>(Thres+200))BattState=Battery_Plenty; //电池电压大于阈值，回到充足状态
-				if(CellVoltage<(Thres-200))BattState=Battery_Low; //电池电压低于阈值则切换到电量低的状态
-				break;
-		 //电池电量不足
-		 case Battery_Low:
-		    if(CellVoltage>Thres)BattState=Battery_Mid; //电池电压高于3.6，切换到电量中等的状态
-			  if(CellVoltage<2950)BattState=Battery_VeryLow; //电池电压低于2.95，报告严重不足
-		    break;
-		 //电池电量严重不足
-		 case Battery_VeryLow:
-			  if(CellVoltage>(Thres-200))BattState=Battery_Low; //电池电压回升到指定阈值，跳转到电量不足阶段
-		    break;
-		 }
-	}
+	}	
 
-//复位电池电压检测缓存
-static void ResetBattAvg(void)	
+/****************************************************************************/
+/* Global Function implementation - API For Trigger Batt/Temp Status report
+****************************************************************************/	
+	
+//触发电池电量提示
+void TriggerBattStatDisplay(void)
 	{
-	BattVolt.Min=32766;
-	BattVolt.Max=-32766; //复位最大最小捕获器
-	BattVolt.Count=0;
-  BattVolt.AvgBuf=0; //清除平均计数器和缓存
+  //电量显示进行中不允许操作
+	if(BattShowTimer)return;
+	//设置定时器，启动显示
+	BattShowTimer=14;
+	}	
+	
+//启动电池电压显示
+void TriggerVshowDisplay(void)	
+	{
+	if(VshowFSMState!=BattVdis_Waiting)return; //非等待显示状态禁止操作
+	VshowFSMState=BattVdis_PrepareDis;	
+	if(GetIfFanOutputEnabled())
+		{
+		if(LEDMode!=LED_OFF)CommonSysFSMTIM=8; //指示灯点亮状态查询电量，熄灭LED等一会
+		LEDMode=LED_OFF;
+		}	
+	IsReportingTemperature=0; //电压报告模式
+	//进行电压取样(缩放为LSB=0.01V)
+	VbattSample=(int)(Data.RawBattVolt*100); 		
+	}		
+
+//启动系统温度显示
+void TriggerTShowDisplay(void)
+	{
+	if(!Data.IsNTCOK||VshowFSMState!=BattVdis_Waiting)return; //非等待显示状态禁止操作
+	//准备显示状态机
+	VshowFSMState=BattVdis_PrepareDis;	
+	if(GetIfFanOutputEnabled())
+		{
+		if(LEDMode!=LED_OFF)CommonSysFSMTIM=8; //指示灯点亮状态查询电量，熄灭LED等一会
+		LEDMode=LED_OFF;
+		}	
+	IsReportingTemperature=1; //温度报告模式	
+	//进行温度取样
+	if(IsNegative8(Data.Systemp))VbattSample=(int)Data.Systemp*-10;
+	else VbattSample=(int)Data.Systemp*10;
 	}
 	
+//查询函数，电压提示状态机是否在操作
+bit	IsVshowFSMInAction(void)
+	{
+	return VshowFSMState!=BattVdis_Waiting?1:0;
+	}
+
+/****************************************************************************/
+/* Global Function implementation - Initialization
+****************************************************************************/	
+
+//等待电池电压就绪（安全保护）
+void WaitBatteryVoltageOK(void)
+	{
+	unsigned char Wait=200;
+	do
+		{		
+		//延迟10mS采样电池电压
+		delay_ms(10);
+		SystemTelemHandler();
+		//如果电池电压正常则退出
+		if(Data.RawBattVolt>2.50)return;
+		}
+	while(--Wait);
+	//电池电压不正常，禁止固件启动并亮红灯
+	LEDMode=LED_Red;
+	while(1)LEDControlHandler();
+	}		
+
 //在启动时显示电池电压
 void DisplayVBattAtStart(bit IsPOR)
 	{
@@ -289,13 +396,40 @@ void DisplayVBattAtStart(bit IsPOR)
 	
 	}
 	
-//触发电池电量提示
-void TriggerBattStatDisplay(void)
+/****************************************************************************/
+/* Global Function implementation - Logic Handler for Battery telemetry
+****************************************************************************/		
+	
+//电池参数测量和指示灯控制
+void BatteryTelemHandler(void)
 	{
-  //电量显示进行中不允许操作
-	if(BattShowTimer)return;
-	//设置定时器，启动显示
-	BattShowTimer=14;
+	//根据电池电压控制flag实现低电压降档和关机保护
+  if(CellVoltage>2820)		
+		{
+		if(IsBatteryFault)
+			{
+			//故障bit置起，令警告bit始终=0，并且检测直到电池电压回升到足以解除的等级后clear掉故障flag
+			if(CellVoltage>3000)IsBatteryFault=0;
+			IsBatteryAlert=0;
+			}
+		else IsBatteryAlert=CellVoltage>CurrentMode->LowVoltThres?0:1; //警报bit根据各个挡位的阈值进行判断
+		}
+	else
+		{
+		IsBatteryAlert=0; //故障bit置起后强制清除警报bit
+		IsBatteryFault=1; //故障bit=1
+		}
+	//电池电量指示状态机
+	BatteryStateFSM();
+	//LED控制
+	if(IsOneTimeStrobe())return; //为了避免干扰只工作一次的频闪指示，不执行控制 
+	else if(VshowFSMState!=BattVdis_Waiting)BatVshowFSM();//电池电压显示启动，执行状态机
+	else if((GetIfFanOutputEnabled()&&CurrentMode->ModeIdx!=Mode_OFF)||BattShowTimer)
+		{
+		//用户查询电量或者风扇手柄开机，指示电量
+		SetPowerLEDBasedOnVbatt(); 
+		}
+  else LEDMode=LED_OFF; //风扇手柄处于关闭状态，且没有按键按下的动静，故LED设置为关闭
 	}
 
 //电池电量显示延时的处理
@@ -324,23 +458,9 @@ void BattDisplayTIM(void)
 	if(BattShowTimer)BattShowTimer--;
 	}
 
-//等待电池电压就绪（安全保护）
-void WaitBatteryVoltageOK(void)
-	{
-	unsigned char Wait=200;
-	do
-		{		
-		//延迟10mS采样电池电压
-		delay_ms(10);
-		SystemTelemHandler();
-		//如果电池电压正常则退出
-		if(Data.RawBattVolt>2.50)return;
-		}
-	while(--Wait);
-	//电池电压不正常，禁止固件启动并亮红灯
-	LEDMode=LED_Red;
-	while(1)LEDControlHandler();
-	}	
+/****************************************************************************/
+/* Function implementation - Handler for cell count detection
+****************************************************************************/	
 
 //没有配置锁的电池检测
 static void CellCountNoCfgLock(void)
@@ -458,36 +578,4 @@ void BattCellCountConfig(void)
 		LEDControlHandler();
 		}	
 	}	
-	
-//电池参数测量和指示灯控制
-void BatteryTelemHandler(void)
-	{
-	//根据电池电压控制flag实现低电压降档和关机保护
-  if(CellVoltage>2820)		
-		{
-		if(IsBatteryFault)
-			{
-			//故障bit置起，令警告bit始终=0，并且检测直到电池电压回升到足以解除的等级后clear掉故障flag
-			if(CellVoltage>3000)IsBatteryFault=0;
-			IsBatteryAlert=0;
-			}
-		else IsBatteryAlert=CellVoltage>CurrentMode->LowVoltThres?0:1; //警报bit根据各个挡位的阈值进行判断
-		}
-	else
-		{
-		IsBatteryAlert=0; //故障bit置起后强制清除警报bit
-		IsBatteryFault=1; //故障bit=1
-		}
-	//电池电量指示状态机
-	BatteryStateFSM();
-	//LED控制
-	if(IsOneTimeStrobe())return; //为了避免干扰只工作一次的频闪指示，不执行控制 
-	else if(VshowFSMState!=BattVdis_Waiting)BatVshowFSM();//电池电压显示启动，执行状态机
-	else if((GetIfFanOutputEnabled()&&CurrentMode->ModeIdx!=Mode_OFF)||BattShowTimer)
-		{
-		//用户查询电量或者风扇手柄开机，指示电量
-		SetPowerLEDBasedOnVbatt(); 
-		}
-  else LEDMode=LED_OFF; //风扇手柄处于关闭状态，且没有按键按下的动静，故LED设置为关闭
-	}
-	
+/*****************************  End Of File  ******************************/

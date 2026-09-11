@@ -1,8 +1,23 @@
+/************************************************************************************/
+/** \file LVDCtrl.h
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个头文件为系统WUT模块硬件驱动的外部声明文件，负责配合上层的欠压自杀逻
+								 辑提供LVD接口。
+
+**	History: Initial Release
+**	
+/************************************************************************************/
 #ifndef _LVDCTL_
 #define _LVDCTL_
 
-//函数
-void LVD_Start(void);       //启动LVD
-void LVD_Disable(void);     //关闭LVD
+/************************************************************************************/
+/* Extern Functions definition                                                      */
+/************************************************************************************/
+void LVD_Start(void);       
+void LVD_Disable(void);     //启动和关闭LVD模块(操作底层WUT)
 
-#endif
+
+#endif /* _LVDCTL_ */
+
+/********************************  End Of File  *************************************/

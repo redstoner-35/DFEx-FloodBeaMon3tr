@@ -1,3 +1,17 @@
+/****************************************************************************/
+/** \file OutputChannel.c
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个文件是上层应用层逻辑，负责根据系统的调速参数控制风扇PWM和
+								 DCDC，输出指定电压和调速信号到风扇控制风扇速度。并且完成板载
+								 配置电阻的识别并启用对应的调速模式。
+**	History:
+				2026年9月11日 Initial Release
+**	
+*****************************************************************************/
+/****************************************************************************/
+/*	include files
+*****************************************************************************/
 #include "cms8s6990.h"
 #include "PinDefs.h"
 #include "PWMCfg.h"
@@ -8,32 +22,88 @@
 #include "ModeSel.h"
 #include "Tempcontrol.h"
 
-//内部sbit
-sbit PINStrap=PinStrapIOP^PinStrapIOx;
-sbit DCDCEN=DCDCENIOP^DCDCENIOx;
-sbit FANPWREN=FANPWRENIOP^FANPWRENIOx;
 
-//内部define
-#define UsingFanIntSoftStart //使用风扇内置软起动（如果发现风扇启动异常则使能此define）
-#define FanPWMMaxRatio 95      //风扇最大占空比限制（如果你用的风扇劲儿太大，驱动扛不住过热保护，可以调小这个让风扇降速。100表示全速输出100%，93表示最大93%）
-#define DualLit1SFanLimitRatio 0.60 //如果关闭超级1S模式，则在单锂下限制风扇的最大出力
+/****************************************************************************/
+/*	Local pre-processor symbols/macros('#define') For Parameter definition
+****************************************************************************/
 
-//内部变量
+/*************************************************
+使用风扇内置软起动（部分暴力风扇内部软起动机制过于暴力
+或者干脆没有软起动机制，启动浪涌电流过大导致驱动保护，
+风扇反复停转打嗝无法启动的话可以尝试注释此宏定义。
+如果发现风扇在每次开机都要延迟十几秒才启动，说明风扇
+内置软起动和固件软起动冲突，此时请取消注释此宏定义改
+为使用风扇内置软起动）
+*************************************************/
+#define UsingFanIntSoftStart 		//
+
+/*************************************************
+风扇最大占空比限制（如果你用的风扇劲儿太大，驱动扛不
+触发住过热保护可以调小这个让风扇降速。100表示全速输出
+100%，95表示PWM最大95%，该选项仅PWM模式生效）
+*************************************************/
+#define FanPWMMaxRatio 95      
+
+/*************************************************
+风扇最大电压限制（如果你用的风扇劲儿太大，驱动扛不
+触发住过热保护可以调小这个让风扇降速。12V表示风扇电压
+12V，超过11.98后该选项会被忽略。该选项仅电压调速模式
+生效）
+*************************************************/
+#define MaxFanVoltageClamp 12.0
+
+/*************************************************
+单双锂通用模式下，安装单锂时风扇的最大出力（因为单双
+锂通用模式下驱动的单锂输出性能会受限，此时您需要设置
+该参数调整风扇的最大功率不大于30W。该参数设置单锂模式
+下最大PWM参数，0.60表示60%。如果是使能了单锂暴力模式
+的固件，则该选项被忽略无用。）
+*************************************************/
+#define DualLit1SFanLimitRatio 0.60
+
+/****************************************************************************/
+/*	Local type definitions('typedef')
+*****************************************************************************/
+typedef enum
+	{
+	OCFSM_Idle, //风扇处于关闭状态
+	OCFSM_Voltage_PreBIAS, //系统工作在电压模式，预先送PWMDAC基准
+	OCFSM_Start_DCDC, //等待DCDC启动
+	OCFSM_PWMRampingUp, //开启风扇电源，风扇起转
+	OCFSM_RaiseVOUT, //输出通道进行电压抬升处理
+	OCFSM_NormalOperation, //风扇已经完成启动，正常操作
+	OCFSM_ShutOFF //输出状态机关闭风扇的流程
+	}OCFSMStateDef;
+
+
+
+/****************************************************************************/
+/*	Local variable and SFR definitions('static')
+****************************************************************************/
+
+sbit PINStrap=PinStrapIOP^PinStrapIOx;  //配置电阻
+sbit DCDCEN=DCDCENIOP^DCDCENIOx;				
+sbit FANPWREN=FANPWRENIOP^FANPWRENIOx;	//DCDC使能和风扇电源PMOS使能
+
 static OCFSMStateDef OCState; //输出通道状态
 static xdata unsigned char OCFSMWait=0; //内部等待函数
 static xdata float RaiseVoltProc; //电压上升的函数
 
-//外部调整变量
+/****************************************************************************/
+/*	Global variable definitions(declared in header file with 'extern')
+****************************************************************************/
 xdata MinMaxDutyVOutDef VMinMaxCfg;  //存储系统最小电压电流和无极调速上限配置
 xdata float TargetVoltage;          //目标风扇电压(仅电压模式生效)
-xdata float TargetfanSpeed; //目标风扇速度
-bit IsUpdateFanSpeed; //更新风扇速度
-bit IsEnablePWMFan; //内部标志位，是否开启PWM风扇模式
+xdata float TargetfanSpeed; 				//目标风扇速度
+bit IsUpdateFanSpeed; 							//更新风扇速度
+bit IsEnablePWMFan; 								//标志位，是否开启PWM风扇模式
 
-//根据传入速度计算风扇PWM数值的函数
+/****************************************************************************/
+/* Local Function implementation - 'static'
+****************************************************************************/	
 static int SetFanPWMProcess(void)
 	{
-	float buf;
+	float buf,DutyLimit;
 	//取数值
 	if(!IsEnablePWMFan)buf=100; //电压模式PWM全高
 	else if(TargetfanSpeed>100)buf=100;
@@ -44,6 +114,7 @@ static int SetFanPWMProcess(void)
 		
 	#endif	
 	//载入温控参数	
+	DutyLimit=QueryDutyLimit();
 	if(DutyLimit>100)DutyLimit=100;	
 	if(DutyLimit<0)DutyLimit=0;     //占空比参数限幅
 	buf*=DutyLimit/(float)100; 
@@ -53,10 +124,10 @@ static int SetFanPWMProcess(void)
 		
 		
 	//乘以PWM Step然后除以100得到PWM取值
-	buf*=FanPWMStepConstant;
+	buf*=FanPWMStepConstant();
 	buf/=(float)100;
 	//限制参数取值为0-FanPWMStepConstant
-	if(buf<(float)FanPWMStepConstant)return (int)buf;
+	if(buf<(float)FanPWMStepConstant())return (int)buf;
 	return FanPWMStepConstant;
 	}
 
@@ -66,14 +137,15 @@ static void SetCVDACProcess(float VIN)
 	float buf;
 
 	//输入参数限幅
-	if(VIN>11.98)buf=11.98;
+	if(VIN>MaxFanVoltageClamp)buf=MaxFanVoltageClamp;
+	else if(VIN>11.98)buf=11.98;
 	else if(VIN<5.1)buf=5.1;
 	else buf=VIN;
 		
 	//载入温控参数进行电压限幅
-	if(buf<VoltageLimit)
+	if(buf<QueryVoltageLimit())
 		{
-		buf=VoltageLimit;
+		buf=QueryVoltageLimit();
 		if(buf<VMinMaxCfg.SysMinVolt)buf=VMinMaxCfg.SysMinVolt;
 		}			
 	//开始调用魔法公式计算
@@ -87,6 +159,60 @@ static void SetCVDACProcess(float VIN)
 	CVDACTargetDuty=buf;	
 	}
 
+/****************************************************************************/
+/* Global Function implementation - Initialization
+****************************************************************************/		
+//输出状态机复位
+void OutputChannel_DeInit(void)
+	{
+	DCDCEN=0;	
+	FANPWREN=0;
+	PINStrap=0;
+	//复位变量
+	IsUpdateFanSpeed=0;
+	RaiseVoltProc=0;
+	TargetVoltage=0;
+	TargetfanSpeed=0;
+  OCState=OCFSM_Idle;
+	}	
+	
+//初始化输出通道状态机
+void OutputChannel_Init(void)
+	{
+	GPIOCfgDef LEDInitCfg;
+	//设置结构体
+	LEDInitCfg.Mode=GPIO_Out_PP;
+  LEDInitCfg.Slew=GPIO_Slow_Slew;		
+	LEDInitCfg.DRVCurrent=GPIO_High_Current; //配置为低斜率大电流的推挽输出
+	//初始化bit		
+	DCDCEN=0;	
+	FANPWREN=0;
+  //初始化DCDC-EN和风扇电源使能IO为推挽输出
+  GPIO_ConfigGPIOMode(DCDCENIOG,GPIOMask(DCDCENIOx),&LEDInitCfg); 
+	GPIO_ConfigGPIOMode(FANPWRENIOG,GPIOMask(FANPWRENIOx),&LEDInitCfg); 		
+	//开始准备读取strap
+	LEDInitCfg.Mode=GPIO_IPU;
+	GPIO_ConfigGPIOMode(PinStrapIOG,GPIOMask(PinStrapIOx),&LEDInitCfg);  //配置为输入上拉
+	delay_ms(40);
+
+	//Strap已经稳定，可以读数了
+	if(PINStrap)IsEnablePWMFan=0;   //R17=DNP 风扇配置为电压调速模式
+  else IsEnablePWMFan=1;          //R17=0R 风扇配置为四线模式		
+	//读取完毕，令Strap输出=0		
+	LEDInitCfg.Mode=GPIO_Out_PP;
+	GPIO_ConfigGPIOMode(PinStrapIOG,GPIOMask(PinStrapIOx),&LEDInitCfg);  //配置为推挽输出
+	PINStrap=0;
+	//复位变量
+	IsUpdateFanSpeed=0;
+	RaiseVoltProc=0;
+	TargetVoltage=0;
+	TargetfanSpeed=0;
+  OCState=OCFSM_Idle;
+	}
+/****************************************************************************/
+/* Global Function implementation - Output Channel Logic and query
+****************************************************************************/		
+	
 //获取风扇输出是否已经开启
 bit GetIfFanOutputEnabled(void)
 	{
@@ -260,51 +386,4 @@ void OutputChannel_Calc(void)
 	//取消内部宏的定义
 	#undef FanStartPWMParam
 	}
-
-//输出状态机复位
-void OutputChannel_DeInit(void)
-	{
-	DCDCEN=0;	
-	FANPWREN=0;
-	PINStrap=0;
-	//复位变量
-	IsUpdateFanSpeed=0;
-	RaiseVoltProc=0;
-	TargetVoltage=0;
-	TargetfanSpeed=0;
-  OCState=OCFSM_Idle;
-	}	
-	
-//初始化输出通道状态机
-void OutputChannel_Init(void)
-	{
-	GPIOCfgDef LEDInitCfg;
-	//设置结构体
-	LEDInitCfg.Mode=GPIO_Out_PP;
-  LEDInitCfg.Slew=GPIO_Slow_Slew;		
-	LEDInitCfg.DRVCurrent=GPIO_High_Current; //配置为低斜率大电流的推挽输出
-	//初始化bit		
-	DCDCEN=0;	
-	FANPWREN=0;
-  //初始化DCDC-EN和风扇电源使能IO为推挽输出
-  GPIO_ConfigGPIOMode(DCDCENIOG,GPIOMask(DCDCENIOx),&LEDInitCfg); 
-	GPIO_ConfigGPIOMode(FANPWRENIOG,GPIOMask(FANPWRENIOx),&LEDInitCfg); 		
-	//开始准备读取strap
-	LEDInitCfg.Mode=GPIO_IPU;
-	GPIO_ConfigGPIOMode(PinStrapIOG,GPIOMask(PinStrapIOx),&LEDInitCfg);  //配置为输入上拉
-	delay_ms(40);
-
-	//Strap已经稳定，可以读数了
-	if(PINStrap)IsEnablePWMFan=0;   //R17=DNP 风扇配置为电压调速模式
-  else IsEnablePWMFan=1;          //R17=0R 风扇配置为四线模式		
-	//读取完毕，令Strap输出=0		
-	LEDInitCfg.Mode=GPIO_Out_PP;
-	GPIO_ConfigGPIOMode(PinStrapIOG,GPIOMask(PinStrapIOx),&LEDInitCfg);  //配置为推挽输出
-	PINStrap=0;
-	//复位变量
-	IsUpdateFanSpeed=0;
-	RaiseVoltProc=0;
-	TargetVoltage=0;
-	TargetfanSpeed=0;
-  OCState=OCFSM_Idle;
-	}
+/*****************************  End Of File  ******************************/

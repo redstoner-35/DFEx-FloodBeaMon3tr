@@ -1,24 +1,40 @@
+/****************************************************************************/
+/** \file Sidekey.c
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个文件负责实现系统侧按的多模态按键识别，并输出按键事件供上层
+								 业务逻辑调用
+**
+**	History:
+				2026年9月10日 Initial Release
+**	
+*****************************************************************************/
+/****************************************************************************/
+/*	include files
+*****************************************************************************/
 #include "delay.h"
 #include "SideKey.h"
 #include "GPIO.h"
 #include "cms8s6990.h"
 #include "PinDefs.h"
 
-//函数
-void LoadSleepTimer(void);
+/****************************************************************************/
+/*	Local pre-processor symbols/macros('#define') For Parameter definition
+****************************************************************************/
 
-//全局变量
-sbit KeyPress=SideKeyGPIOP^SideKeyGPIOx; //侧按按键输入
-static bit IsKeyPressed; //按键是否按下
-static unsigned char KeyTimer[2];//计时器0用于按键按下计时，计时器1用于连按检测计时
-static KeyEventStrDef Keyevent; //按键事件
+//按键检测延时(每个单位=0.125秒)
+#define LongPressTime 5 //长按按键检测延时(按下时间超过这个数值则判定为长按)
+#define ContShortPressWindow 4 //连续多次按下时侧按的检测释抑时间(在该时间以内按下的短按才算入短按次数内)
+#define KeyReleaseDetectMask 0xFF //按键按下
 
-//内部按键检测用的变量
-xdata unsigned char KeyState;
+/****************************************************************************/
+/*	Local pre-processor symbols/macros('#define') For Parameter parsing
 
-//侧按按键的中断向量和按键Flag清除自动定义，不得修改！
-#define SideKeyINTFlagMsk (0x01<<SideKeyGPIOx)
+Note: 以下的宏请勿修改，否则会导致按键处理模块工作异常！如果您需要修改按键的pin
+			脚定义，请编辑Pindefs.h文件！
+****************************************************************************/
 
+//定义按键中断处理入口
 #if (SideKeyGPIOG == 0)
 	#define SideKeyIRQ P0EI_VECTOR
 	#define ClearKeyIntFlag() P0EXTIF=0  
@@ -36,84 +52,36 @@ xdata unsigned char KeyState;
 	#define ClearKeyIntFlag() P3EXTIF=0  
 	#define SideKeyIFlagReg P3EXTIF
 #else
-	#error "Invalid GPIO Group Number for SideKey GPIO!"
+	#error "Invalid GPIO Pin Number for SideKey GPIO!"
+	#error "Please Check header file <Pindefs.h>"
 #endif
 
-//获取侧按实时GPIO状态
-bit GetSideKeyRawGPIOState(void)
-	{
-	return KeyPress;
-	}
+//定义按键中断检测的mask
+#if (SideKeyGPIOx > 0x07 || SideKeyGPIOx < 0x00)
+  #error "Invalid GPIO Pin Number for SideKey GPIO!"
+  #error "Please Check header file <Pindefs.h>"
+#else
+  //合法的GPIO参数，执行mask定义
+  #define SideKeyINTFlagMsk (0x01<<SideKeyGPIOx)
+#endif
+/****************************************************************************/
+/*	Local variable and special Register definitions('static')
+****************************************************************************/
 
-//获得侧按是否触发中断
-char GetIfSideKeyTriggerInt(void)
-	{
-	if(!KeyPress)return 1;
-	return SideKeyIFlagReg&SideKeyINTFlagMsk;
-	}
+sbit KeyPress=SideKeyGPIOP^SideKeyGPIOx; //侧按按键输入的GPIO对应的位
 
-//GPIO2中断回调处理函数
+static xdata unsigned char KeyState;
+static bit IsKeyPressed; //按键是否按下
+static unsigned char KeyTimer[2];//计时器0用于按键按下计时，计时器1用于连按检测计时
+static KeyEventStrDef Keyevent; //按键事件
+
+/****************************************************************************/
+/*	Local GPIO Interrupt Handler (ISR Routine)
+****************************************************************************/	
+
+//GPIO中断回调处理函数
 void Key_IRQHandler(void) interrupt SideKeyIRQ 
   {
-	//侧按中断触发，响应中断
-	SideKey_Int_Callback();  //进行按键响应
-	//按键Flag清除
-  ClearKeyIntFlag();
-	}
-
-//初始化侧按键
-void SideKeyInit(void)
-  {
-	GPIOCfgDef KeyInitCfg;
-	//设置结构体
-	KeyInitCfg.Mode=GPIO_IPU;
-  KeyInitCfg.Slew=GPIO_Slow_Slew;		
-	KeyInitCfg.DRVCurrent=GPIO_Low_Current; //配置为上拉输入
-	//按键输入初始化
-	GPIO_SetMUXMode(SideKeyGPIOG,SideKeyGPIOx,GPIO_AF_GPIO); //配置为GPIO			
-  GPIO_ConfigGPIOMode(SideKeyGPIOG,GPIOMask(SideKeyGPIOx),&KeyInitCfg);//按键输入
-	GPIO_EnableInt(SideKeyGPIOG,GPIOMask(SideKeyGPIOx)); //使能中断功能
-	GPIO_SetExtIntMode(SideKeyGPIOG,SideKeyGPIOx,GPIO_Int_Falling);//设置为下降沿触发
-	EIP1|=0x04; //将按键中断设置为高优先级
-	//初始化结构体内容和定时器
-	LoadSleepTimer();
-	KeyState=0xFF;
-	KeyTimer[0]=0x00;
-	KeyTimer[1]=0x00;
-	Keyevent.ShortPressCount=0;
-	Keyevent.ShortPressEvent=0;
-	Keyevent.HoldStat=HoldEvent_None;
-	}
-
-//检测是否有事件发生
-bit IsKeyEventOccurred(void)
-	{
-	if(Keyevent.HoldStat!=HoldEvent_None)return 1;
-	if(Keyevent.ShortPressEvent)return 1;
-	//什么也没有，退出不处理
-	return 0;	
-	}	
-
-//侧按按键计时模块
-void SideKey_TIM_Callback(void)
-  {
-	unsigned char buf,i,Time;
-	extern bit IsTacMode;
-	//定时器处理（其中0用于短按/长按判断计时，1用于连续短按终止计时）
-	for(i=0;i<2;i++)if(KeyTimer[i]&0x80)
-		{
-		buf=KeyTimer[i]&0x7F;
-		if(!i)Time=(unsigned char)LongPressTime;
-		else Time=(unsigned char)ContShortPressWindow;
-		if(buf<Time)buf++;
-		KeyTimer[i]&=0x80;
-		KeyTimer[i]|=buf; //将数值取出来，加1再写回去
-		}
-	}
-
-//侧按GPIO中断回调处理
-void SideKey_Int_Callback(void)
-	{
 	unsigned char time;
   //开始响应
 	if(GPIO_GetExtIntMode(SideKeyGPIOG,SideKeyGPIOx)==GPIO_Int_Rising)
@@ -134,28 +102,16 @@ void SideKey_Int_Callback(void)
 		}
 	//按键按下，调用标记函数
 	else MarkAsKeyPressed();
-	//关闭侧按中断
+	//关闭侧按中断并进行按键Flag清除
 	SideKey_SetIntOFF();
+  ClearKeyIntFlag();
 	}
 
-//标记按键按下
-void MarkAsKeyPressed(void)
-	{	
-	//标记按键已被按下
-	IsKeyPressed = 1;//标记按键按下
-	if(KeyTimer[1]&0x80)KeyTimer[1]=0x80;//复位
-	if(!(KeyTimer[0]&0x80))KeyTimer[0]=0x80;//启动计时
-	}		
-	
-//关闭侧按的GPIO中断
-void SideKey_SetIntOFF(void)
-	{
-	//禁止INT0中断
-	GPIO_DisableInt(SideKeyGPIOG,GPIOMask(SideKeyGPIOx)); //禁止中断功能
-	KeyState=0xAA; //复位检测模块
-	}
-	
-//在单击双击三击+长按触发的时候清除单击事件的记录
+/****************************************************************************/
+/*	Local function implantation('static')
+****************************************************************************/	
+
+//在单击双击三击+长按触发的时候清除单击事件的记录并执行多击+长按事件登记的处理
 static void ClickAndHoldEventHandler(int PressCount)
   {
 	KeyTimer[1]=0; //关闭后部检测定时器
@@ -165,6 +121,52 @@ static void ClickAndHoldEventHandler(int PressCount)
 	//多击+长按
 	Keyevent.HoldStat=(HoldEventDef)(PressCount+1);
 	}
+
+
+/****************************************************************************/
+/* Global Function implementation - Initialization & Logic handler
+****************************************************************************/	
+
+//初始化侧按键
+void SideKeyInit(void)
+  {
+	GPIOCfgDef KeyInitCfg;
+	//设置结构体
+	KeyInitCfg.Mode=GPIO_IPU;
+  KeyInitCfg.Slew=GPIO_Slow_Slew;		
+	KeyInitCfg.DRVCurrent=GPIO_Low_Current; //配置为上拉输入
+	//按键输入初始化
+	GPIO_SetMUXMode(SideKeyGPIOG,SideKeyGPIOx,GPIO_AF_GPIO); //配置为GPIO			
+  GPIO_ConfigGPIOMode(SideKeyGPIOG,GPIOMask(SideKeyGPIOx),&KeyInitCfg);//按键输入
+	GPIO_EnableInt(SideKeyGPIOG,GPIOMask(SideKeyGPIOx)); //使能中断功能
+	GPIO_SetExtIntMode(SideKeyGPIOG,SideKeyGPIOx,GPIO_Int_Falling);//设置为下降沿触发
+	EIP1|=0x04; //将按键中断设置为高优先级
+	//初始化结构体内容和定时器
+	KeyState=0xFF;
+	KeyTimer[0]=0x00;
+	KeyTimer[1]=0x00;
+	Keyevent.ShortPressCount=0;
+	Keyevent.ShortPressEvent=0;
+	Keyevent.HoldStat=HoldEvent_None;
+	}
+
+//侧按按键计时模块
+void SideKey_TIM_Callback(void)
+  {
+	unsigned char buf,i,Time;
+	extern bit IsTacMode;
+	//定时器处理（其中0用于短按/长按判断计时，1用于连续短按终止计时）
+	for(i=0;i<2;i++)if(KeyTimer[i]&0x80)
+		{
+		buf=KeyTimer[i]&0x7F;
+		if(!i)Time=(unsigned char)LongPressTime;
+		else Time=(unsigned char)ContShortPressWindow;
+		if(buf<Time)buf++;
+		KeyTimer[i]&=0x80;
+		KeyTimer[i]|=buf; //将数值取出来，加1再写回去
+		}
+	}
+
 //侧按键逻辑处理函数
 void SideKey_LogicHandler(void)
   {		
@@ -180,7 +182,6 @@ void SideKey_LogicHandler(void)
 		buf=KeyState&KeyReleaseDetectMask;	
 		if(buf==KeyReleaseDetectMask||buf==0x00)
 			{
-			LoadSleepTimer(); //加载定时器
 			ClearKeyIntFlag();//清除按键响应的Flag
 			IsKeyPressed=buf==KeyReleaseDetectMask?0:1; //更新按键状态	
 			GPIO_SetExtIntMode(SideKeyGPIOG,SideKeyGPIOx,buf==KeyReleaseDetectMask?GPIO_Int_Falling:GPIO_Int_Rising);//如果当前按键是松开状态则设置为下降沿，否则设置为上升沿
@@ -212,12 +213,25 @@ void SideKey_LogicHandler(void)
 			Keyevent.LongPressDetected=0; //清除长按检测到的结果
 		}
 	}
-//获取侧按键点按次数的获取函数
-char getSideKeyShortPressCount(void)
-  {
-	//有长按和N击+长按事件，或者短按事件未置起，返回0
-	if(Keyevent.HoldStat!=HoldEvent_None||!Keyevent.ShortPressEvent)return 0;
-  return Keyevent.ShortPressCount;		
+
+/****************************************************************************/
+/* Global Function implementation - Special Operation
+****************************************************************************/	
+//标记按键按下
+void MarkAsKeyPressed(void)
+	{	
+	//标记按键已被按下
+	IsKeyPressed = 1;//标记按键按下
+	if(KeyTimer[1]&0x80)KeyTimer[1]=0x80;//复位
+	if(!(KeyTimer[0]&0x80))KeyTimer[0]=0x80;//启动计时
+	}		
+	
+//关闭侧按的GPIO中断
+void SideKey_SetIntOFF(void)
+	{
+	//禁止INT0中断
+	GPIO_DisableInt(SideKeyGPIOG,GPIOMask(SideKeyGPIOx)); //禁止中断功能
+	KeyState=0xAA; //复位检测模块
 	}
 
 //清除短按事件
@@ -229,6 +243,45 @@ void ClearShortPressEvent(void)
 	Keyevent.ShortPressEvent=0; 
 	Keyevent.ShortPressCount=0;
 	}	
+	
+/****************************************************************************/
+/* Global Function implementation - Realtime Key GPIO Status Query
+****************************************************************************/		
+	
+//获取侧按实时GPIO状态（没有任何去抖，直接读取）
+bit GetSideKeyRawGPIOState(void)
+	{
+	return KeyPress;
+	}
+
+//获得侧按是否触发中断
+char GetIfSideKeyTriggerInt(void)
+	{
+	if(!KeyPress)return 1;
+	return SideKeyIFlagReg&SideKeyINTFlagMsk;
+	}
+/****************************************************************************/
+/* Global Function implementation - Key Event Query
+****************************************************************************/		
+	
+//检测是否有事件发生
+bit IsKeyEventOccurred(void)
+	{
+	if(Keyevent.HoldStat!=HoldEvent_None)return 1;
+	if(Keyevent.ShortPressEvent)return 1;
+	//什么也没有，退出不处理
+	return 0;	
+	}	
+
+//获取侧按键点按次数的获取函数
+char getSideKeyShortPressCount(void)
+  {
+	//有长按和N击+长按事件，或者短按事件未置起，返回0
+	if(Keyevent.HoldStat!=HoldEvent_None||!Keyevent.ShortPressEvent)return 0;
+  return Keyevent.ShortPressCount;		
+	}
+
+
 //获取侧按按键长按2秒事件的函数
 bit getSideKeyLongPressEvent(void)
   {
@@ -252,3 +305,4 @@ char getSideKeyNClickAndHoldEvent(void)
 	//Enum值是特殊设计的，按键次数=enum值-1
 	return (char)(Keyevent.HoldStat)-1>0?(char)(Keyevent.HoldStat)-1:0;
 	}
+/*****************************  End Of File  ******************************/

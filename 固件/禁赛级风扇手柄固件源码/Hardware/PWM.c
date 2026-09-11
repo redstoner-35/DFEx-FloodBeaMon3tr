@@ -1,19 +1,60 @@
+/****************************************************************************/
+/** \file PWM.c
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个文件负责驱动系统的ePWM模块对外提供风扇调速信号和PWMDAC模拟
+								 输出完成恒压注入实现电压调速功能。
+**
+**	History:
+				2026年9月11日 Initial Release
+**	
+*****************************************************************************/
+/****************************************************************************/
+/*	include files
+*****************************************************************************/
 #include "cms8s6990.h"
 #include "PinDefs.h"
 #include "GPIO.h"
 #include "PWMCfg.h"
 
-//全局变量
+/****************************************************************************/
+/*	Local pre-processor symbols/macros('#define') For Parameter definition
+****************************************************************************/
+#define SysFreq 48000000 //系统时钟频率(单位Hz)
+#define PWMFreq 6000 //PWM频率(单位Hz)	
+#define FanPWMFreq 20000	//风扇的PWM频率(单位Hz)	
+	
+/****************************************************************************/
+/*	Local pre-processor symbols/macros('#define') For Parameter parsing
+
+Note: 以下的宏请勿修改，否则会导致PWM模块工作异常！
+****************************************************************************/
+#define PWMStepConstant (SysFreq/PWMFreq)-1 				
+#define FanPWMStepConstantVal (SysFreq/FanPWMFreq)-1  //PWM周期自动定义
+
+//PWM使能操作
+#define PWM_Enable() 	do{PWMFBKC=0x00;PWMCNTE=0x11;}while(0) //使能PWM输出 
+
+/****************************************************************************/
+/*	Global variable definitions(declared in header file with 'extern')
+****************************************************************************/
 xdata float CVDACTargetDuty;
-xdata unsigned int FanPWMDuty; //风扇的目标的占空比
+xdata unsigned int FanPWMDuty; //风扇和恒压DAC的目标占空比
+bit IsNeedToUploadPWM; 				 //是否需要更新PWM
+
+/****************************************************************************/
+/*	Local variable and special Register definitions('static')
+****************************************************************************/
 static bit IsPWMLoading; //PWM正在加载中
 static bit IsNeedToEnableOutput; //是否需要启用输出
 static bit IsNeedToEnableMOS; //是否需要使能MOS管
-bit IsNeedToUploadPWM; //是否需要更新PWM
 
-//内部Sbit
 sbit FanPWMPin=FanPWMIOP^FanPWMIOx;
 sbit CVDACPin=CVDACIOP^CVDACIOx;
+
+/****************************************************************************/
+/* Global Function implementation - Initialization
+****************************************************************************/	
 
 //关闭PWM定时器
 void PWM_DeInit(void)
@@ -65,8 +106,8 @@ void PWM_Init(void)
 	//配置周期数据
 	PWMP0H=(PWMStepConstant>>8)&0xFF;
 	PWMP0L=PWMStepConstant&0xFF;	
-	PWMP4H=(FanPWMStepConstant>>8)&0xFF;
-	PWMP4L=FanPWMStepConstant&0xFF;
+	PWMP4H=(FanPWMStepConstantVal>>8)&0xFF;
+	PWMP4L=FanPWMStepConstantVal&0xFF;
 	//配置占空比数据
   PWMD0H=0;
   PWMD4H=0x0;
@@ -84,6 +125,28 @@ void PWM_Init(void)
 	GPIO_SetMUXMode(FanPWMIOG,FanPWMIOx,GPIO_AF_PWMCH4);
   GPIO_SetMUXMode(CVDACIOG,CVDACIOx,GPIO_AF_PWMCH0);
 	}
+
+/****************************************************************************/
+/* Global Function implementation - Special Operation
+****************************************************************************/		
+	
+//获取风扇PWM的数值常量
+int FanPWMStepConstant(void)
+	{
+	/*****************************************************
+	特殊的函数，返回一个常量值供原来获取PWM常量的函数进行运算
+	将硬件底层的参数宏和上层应用调用隔离。	
+		
+	这里不用担心函数返回的开销，因为编译器检测到这个函数只返
+	回一个宏定义的常量，内部没有其他任何操作的话就不会生成函
+	数进入和返回的入栈压栈和RETI代码。
+	*****************************************************/
+	return FanPWMStepConstantVal;
+	}
+	
+/****************************************************************************/
+/* Global Function implementation - Logic Handler
+****************************************************************************/	
 
 //根据PWM结构体内的配置进行输出
 void PWM_OutputCtrlHandler(void)	
@@ -110,7 +173,7 @@ void PWM_OutputCtrlHandler(void)
 		//PWM占空比参数限制
 		if(CVDACTargetDuty>100)CVDACTargetDuty=100;
 		if(CVDACTargetDuty<0)CVDACTargetDuty=0;
-		if(FanPWMDuty>FanPWMStepConstant)FanPWMDuty=FanPWMStepConstant;
+		if(FanPWMDuty>FanPWMStepConstantVal)FanPWMDuty=FanPWMStepConstantVal;
 		//根据PWM数值选择MASK寄存器是否启用
 		IsNeedToEnableOutput=CVDACTargetDuty>0?1:0; //是否需要启用输出
 		IsNeedToEnableMOS=FanPWMDuty?1:0;  //配置是否需要使能FET
@@ -121,7 +184,7 @@ void PWM_OutputCtrlHandler(void)
 		PWMD0H=(value>>8)&0xFF;
 		PWMD0L=value&0xFF;		
 		//装载风扇的PWM数值
-		value=FanPWMStepConstant-FanPWMDuty;  //因为风扇PWM电路的输出电平位移自带反相器所以需要输出反过来的占空比
+		value=FanPWMStepConstantVal-FanPWMDuty;  //因为风扇PWM电路的输出电平位移自带反相器所以需要输出反过来的占空比
 		if(!value)IsNeedToEnableMOS=0; //PWM输出100%的时候直接让输出MOS关掉就行了
 		PWMD4H=(value>>8)&0xFF;
 		PWMD4L=value&0xFF;			
@@ -130,3 +193,4 @@ void PWM_OutputCtrlHandler(void)
 		PWMLOADEN|=0x11; //开始加载
 		}
 	}
+/*****************************  End Of File  ******************************/

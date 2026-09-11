@@ -1,3 +1,16 @@
+/****************************************************************************/
+/** \file LEDMgmt.c
+/** \Author redstoner_35
+/** \Project Xtern Ripper Hyper Fan Ultra Edition
+/** \Description 这个文件负责实现系统侧按指示的多模态驱动和断电睡眠的LED处理
+**
+**	History:
+				2026年9月10日 Initial Release
+**	
+*****************************************************************************/
+/****************************************************************************/
+/*	include files
+*****************************************************************************/
 #include "delay.h"
 #include "LEDMgmt.h"
 #include "GPIO.h"
@@ -6,18 +19,29 @@
 #include "BattDisplay.h"
 #include "LVDCtrl.h"
 
-//函数声明
+/****************************************************************************/
+/*	function Prototype('extern')
+****************************************************************************/	
 bit QueryIsSystemInBoostMode(void);
 bit IsThermalStepdown(void);
 
-//全局变量
-volatile LEDStateDef LEDMode; 
-static xdata char timer;
-static xdata char BoostModeInfoTIM;
+/****************************************************************************/
+/*	Global variable definitions(declared in header file with 'extern')
+****************************************************************************/
+volatile LEDStateDef LEDMode;  //LED控制模式
 
-//内部sfr
+/****************************************************************************/
+/*	Local variable and special Register definitions('static')
+****************************************************************************/
+static xdata char timer;
+static xdata char BoostModeInfoTIM;  //降档提示和暴力模式提示计时器
+
 sbit RLED=RedLEDIOP^RedLEDIOx;
-sbit GLED=GreenLEDIOP^GreenLEDIOx;
+sbit GLED=GreenLEDIOP^GreenLEDIOx;   //LED GPIO声明
+
+/****************************************************************************/
+/* Global Function implementation - Initialization
+****************************************************************************/	
 
 //LED关闭函数
 void LED_DeInit(void)
@@ -64,6 +88,10 @@ void LED_Init(void)
 	LEDMode=LED_OFF;
 	}
 
+/****************************************************************************/
+/* Global Function implementation - Logic handler
+****************************************************************************/		
+	
 //LED控制函数
 void LEDControlHandler(void)
 	{
@@ -151,6 +179,10 @@ void LEDControlHandler(void)
 		}
 	}
 
+/****************************************************************************/
+/* Global Function implementation - Special Operation
+****************************************************************************/		
+	
 //制造一次快闪
 void MakeFastStrobe(LEDStateDef LEDMode)
 	{
@@ -167,3 +199,4 @@ void MakeFastStrobe(LEDStateDef LEDMode)
 	RLED=0;
 	GLED=0;
 	}	
+/*****************************  End Of File  ******************************/
