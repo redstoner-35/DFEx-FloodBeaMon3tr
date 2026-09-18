@@ -53,10 +53,10 @@
 #define BatteryDynamicTurboDegFactor 20 //极亮模式下动态调节恒温温度实现无缝过渡的系数，单位(mV)系数越小，温度下降速度越快 
 
 //常亮电流配置
-#define ThermalFoldbackILEDDegVal 5000 //触发温度回折保护之后，降档系统立即减少的电流量(mA)
+#define ThermalFoldbackILEDDegVal 5500 //触发温度回折保护之后，降档系统立即减少的电流量(mA)
 #define ILEDConstantGlowMin 5000 //降档系统内的低温温控的常亮电流设置(mA)
 #define ILEDConstantGlowMinOverHeat 2000 //过热后普通挡位的常亮电流值(mA)
-#define ILEDConstantGlowMinTurbo 10000 //降档系统内的极亮温控的常亮电流设置(mA)
+#define ILEDConstantGlowMinTurbo 12000 //降档系统内的极亮温控的常亮电流设置(mA)
 #define ILEDConstantGlowMinECOTurbo 8000 //降档系统内的极亮温控（ECO模式）的常亮电流设置(mA)
 
 //温度配置

@@ -734,13 +734,13 @@ void ChargeMgmtKeyLogic(void)
 		
 		case 5:
 			//五击允许用户开启手动均衡
-			if(!VINOK||BattState.Vdiff<20)LEDMode=LED_RedBlinkThird; //当前处于充电或者压差足够低，闪三下提示无法开启
-		  else if(SysState.BalState==BAL_Disable)                  //均衡处于关闭状态，四击强制关闭
+			if(!VINOK||BattState.Vdiff<10)LEDMode=LED_RedBlinkThird; //当前处于充电或者压差足够低，闪三下提示无法开启
+		  else if(SysState.BalState==BAL_Disable)                  //均衡处于关闭状态，五击打开均衡
 				{
-				ManualBalTIM=480*60;  //倒计时一个小时
+				ManualBalTIM=480*120;  //倒计时2个小时
 				SysState.BalState=BAL_EnableManual;   //打开手动均衡
 				}
-			else if(SysState.ConsState==BattCons_OK)  //均衡已经完成，四击关闭均衡
+			else if(SysState.ConsState==BattCons_OK)  //均衡已经完成，五击关闭均衡
 				{
 				ManualBalTIM=0;  //清除倒计时
 				SysState.BalState=BAL_Disable;
@@ -863,7 +863,7 @@ void ChargeMgmt_BalHandler(void)
 			//电池电量过低，关闭均衡
 			if(SysState.TotalBattState==Battery_VeryLow)SysState.BalState=BAL_Disable; 
 			//电池一致性合格或者时间到，自动关闭
-		  if(!ManualBalTIM||(BattState.Vdiff<20&&SysState.ConsState==BattCons_OK))SysState.BalState=BAL_Disable;
+		  if(!ManualBalTIM||(BattState.Vdiff<10&&SysState.ConsState==BattCons_OK))SysState.BalState=BAL_Disable;
 		  break;
 		}
 	//设置均衡使能
@@ -912,7 +912,8 @@ void ChargeMgmt_BalHandler(void)
 		    break;
 		}
 	//设置禁充模块对应的GPIO
-	CHGDIS=(SysState.ChargeState==Charge_Enabled?0:1);
+	if(SysState.BalState==BAL_EnableManual)CHGDIS=1;            //当前位于手动均衡模式，关闭充放电
+	else CHGDIS=(SysState.ChargeState==Charge_Enabled?0:1);			//其余模式根据充电使能状态机配置
 	}
 	
 /****************************************************************************/

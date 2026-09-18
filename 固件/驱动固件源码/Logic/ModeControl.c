@@ -150,12 +150,17 @@
 	#message "LED Type : DFEx-Super LED+ FL8032P Gen1"
 	#message "LED Current : 41.5A"
 
+#elif defined(USING_LED_FL8032P_G2)	
+	#message "LED Type : DFEx-Super LED+ FL8032P Gen2"
+	#message "LED Current : 42.0A"
+	#message "Note : ECO Current will be increased to 24A for just over 100K Lumens."
+
 #else
 	#message "LED Type : Unknown LED"
 	#message "LED Current : Undefined"	 
 
 #endif
-#message " ****************************************************************************"
+#message "****************************************************************************"
 /****************************************************************************/
 /*	Local constant variable definitions('static const 'or 'code')
 ****************************************************************************/

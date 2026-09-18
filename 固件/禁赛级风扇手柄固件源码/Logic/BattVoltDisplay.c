@@ -85,9 +85,11 @@ static xdata BattVshowFSMDef VshowFSMState; //电池电压显示所需的计时器和状态机转
 //内部使用的先导显示表
 static code LEDStateDef VShowIndexCode[]=
 	{
-	LED_Green,
+	LED_Red,
 	LED_Amber,
-	LED_Red  //绿黄红过度
+	LED_Green,  //正常过渡是红黄绿
+	LED_Amber,
+	LED_Red  		//高精度模式是反过来，绿红黄
 	};
 
 /****************************************************************************/
@@ -160,6 +162,8 @@ static LEDStateDef VshowEnter_ShowIndex(void)
 	if(CommonSysFSMTIM>9)
 		{
 		Index=((CommonSysFSMTIM-8)>>1)-1;
+		if(IsReportingTemperature&&!IsNegative16(Data.Systemp))Index+=2; //温度播报时温度为正数，使用常规显示模式
+		if(!IsReportingTemperature&&VbattSample>999)Index+=2; 		//电压播报时传入电压大于10V,使用常规显示模式
 		return VShowIndexCode[Index];
 		}
 	return LED_OFF; //红黄绿闪烁之后(如果是高精度显示模式则为绿红黄)等待
@@ -334,7 +338,7 @@ void TriggerTShowDisplay(void)
 		}	
 	IsReportingTemperature=1; //温度报告模式	
 	//进行温度取样
-	if(IsNegative8(Data.Systemp))VbattSample=(int)Data.Systemp*-10;
+	if(IsNegative16(Data.Systemp))VbattSample=(int)Data.Systemp*-10;
 	else VbattSample=(int)Data.Systemp*10;
 	}
 	

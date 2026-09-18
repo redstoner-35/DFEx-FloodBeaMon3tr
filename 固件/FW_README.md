@@ -4,7 +4,7 @@ powered by 35's Embedded Systems Inc. An Open-Source High Power Flood FlashLight
 
 ### 固件编译环境要求
 
-该驱动的固件源代码使用了**Keil C51 V9.61a版本**的高级编译优化特性来实现空间压缩。使用其他的keil C51版本会导致编译出来的固件因为优化不足，超出芯片容量大小而编译失败！如果您编译无法通过则可以使用[预编译固件文件夹](/%E9%A2%84%E7%BC%96%E8%AF%91%E5%9B%BA%E4%BB%B6/)内作者所编译好的二进制固件文件并提供给芯片卖家让其烧录好芯片。
+该驱动的固件源代码使用了**Keil C51 V9.61a版本**的高级编译优化特性来实现空间压缩。使用其他的keil C51版本会导致编译出来的固件因为优化不足，超出芯片容量大小而编译失败！此外该程序源码不支持开源编译环境如SDCC等。如果您需要使用开源工具链，则请自行移植。如果您编译无法通过则可以使用[预编译固件文件夹](/%E9%A2%84%E7%BC%96%E8%AF%91%E5%9B%BA%E4%BB%B6/)内作者所编译好的二进制固件文件并提供给芯片卖家让其烧录好芯片。
 
 ### MCU的CONFIG配置
 
@@ -35,7 +35,7 @@ powered by 35's Embedded Systems Inc. An Open-Source High Power Flood FlashLight
 
 ### 烧录器在哪买？
 
-本项目使用到了中微半导体的CMS8S系列MCU。配套的在线烧录/调试器是中微的**CMS ICE8 PRO**。您可在中微半导体的[淘宝店](https://item.taobao.com/item.htm?abbucket=5&id=679620957040&loginBonus=1&mi_id=0000OfZj4mB4W8ntz7cuVQ23ysQDaMcod53sO6cLY24fOm8&ns=1&priceTId=214783b117872947342754623e1200&skuId=5045123690895&spm=a21n57.sem.item.16.4fe43903socVPV&utparam=%7B%22aplus_abtest%22%3A%229bba9efce8e1272f374986c080ba9508%22%7D&xxc=taobaoSearch)购买。并且安装好CMS 51的Keil支持补丁。相关补丁可以在[中微半导体官网](https://www.mcu.com.cn/)下载。安装好环境并编译通过后，您可以直接在keil中使用CMS ICE8 PRO烧录器直接将固件烧录到单片机内。由于时间有限，作者恕不提供关于keil C51环境、烧录器驱动等基础环境的搭建教程。烦请自行google或百度查找相关教程。如您实在无法成功搭建环境，请看本文件的下一个章节。
+本项目使用到了中微半导体的CMS8S系列MCU。配套的在线烧录/调试器是中微的**CMS ICE8 PRO** 。您可在中微半导体的[淘宝店](https://item.taobao.com/item.htm?abbucket=5&id=679620957040&loginBonus=1&mi_id=0000OfZj4mB4W8ntz7cuVQ23ysQDaMcod53sO6cLY24fOm8&ns=1&priceTId=214783b117872947342754623e1200&skuId=5045123690895&spm=a21n57.sem.item.16.4fe43903socVPV&utparam=%7B%22aplus_abtest%22%3A%229bba9efce8e1272f374986c080ba9508%22%7D&xxc=taobaoSearch)购买。并且安装好CMS 51的Keil支持补丁。相关补丁可以在[中微半导体官网](https://www.mcu.com.cn/)下载。安装好环境并编译通过后，您可以直接在keil中使用CMS ICE8 PRO烧录器直接将固件烧录到单片机内。由于时间有限，作者恕不提供关于keil C51环境、烧录器驱动等基础环境的搭建教程。烦请自行google或百度查找相关教程。如您实在无法成功搭建环境，请看本文件的下一个章节。
 
 ## 如果我没办法自己编译和在线烧录怎么办？
 

@@ -6,6 +6,9 @@
 的进入以及退出逻辑，并且实现系统特殊模式（战术点亮、锁定等）的逻辑切换和显示
 
 **	History: 
+        2026年9月14日  17:18 1.修改睡眠时间进入和退出函数，解决进入战术模式后因
+															 睡眠时间未被重置而引起战术模式自动退出的故障。
+				
 				2025年12月26日 10:05 1.针对新增的日常走夜路模式调整战术模式的准入连击数
 															 判定条件。改为根据配置文件自动判定。
 				                     2.修改系统在锁定模式下的紧急月光逻辑，改为可以松手
@@ -28,6 +31,7 @@
 #include "SysConfig.h"
 #include "SideKey.h"
 #include "LowVoltProt.h"
+#include "sleep.h"
 
 /****************************************************************************/
 /*	Local pre-processor symbols/macros - for Parameter Definition
@@ -55,6 +59,7 @@ static void EnterExitLock(void)
 	DisplayLockedTIM=8; //指示锁定状态切换
 	SysMode=!SysMode?Operation_Locked:Operation_Normal;
 	SaveSysConfig(0);
+	ResetSleepTimer(); //进入和退出锁定，重置定时器避免系统异常
 	}
 	
 //进入退出战术切换
@@ -62,6 +67,7 @@ static void EnterExitTac(void)
 	{
 	DisplayLockedTIM=2; //指示战术切换
 	SysMode=!SysMode?Operation_TacTurbo:Operation_Normal;
+	ResetSleepTimer();   //立即重置睡眠定时器，避免tac模式进入和退出后系统睡眠功能异常
 	}	
 
 /****************************************************************************/

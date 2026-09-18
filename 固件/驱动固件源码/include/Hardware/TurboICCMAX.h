@@ -74,6 +74,11 @@
 
   #define TurboICCMAX 41500
 
+
+#elif defined(USING_LED_FL8032P_G2)
+
+	#define TurboICCMAX 42000
+
 //专属定制版本加强NBT160
 #elif defined(USING_LED_FV7011I)
 
@@ -99,9 +104,13 @@
 
 #elif defined(TurboICCMAX)
   
-	#if (defined(USING_LED_FL8032P))
+	#if (defined(USING_LED_FL8032P_G2))
+	    //使用2代8032P 为了ECO上10万，略微加一点电流
+			#define ECOTurboICCMAX 23000
+	
+	#elif (defined(USING_LED_FL8032P))
 		   //使用FL8032P灯珠，ECO模式限制为23A
-      #define ECOTurboICCMAX 23000
+      #define ECOTurboICCMAX 24000
 	
 	#elif (defined(USING_LED_FV7011I)|defined(USING_LED_N7270HP))
 	   //使用FV7011I或者N7270灯珠，ECO模式限制为25A

@@ -27,8 +27,8 @@
 #define PowerOffTemp 68         //过热关机温度
 
 //积分温控系数
-#define ThermalDutyStepK 0.01  //占空比K
-#define ThermalVoltStepK 0.005  //电压K
+#define ThermalDutyStepK 0.005  //占空比K
+#define ThermalVoltStepK 0.002  //电压K
 
 //温控降档范围限制
 #define NoThrottleVlim 12.0
@@ -156,7 +156,9 @@ void TempDegDetect(void)
 		//占空比部分的积分温控
 		NewDLim=(float)(Data.Systemp-ThrottleMaintainTemp); //计算误差值
 		if(Data.Systemp>(PowerOffTemp-5)&&NewDLim>0)NewDLim*=2.5; //系统温度接近过热关机点，迅速提升比例系数快速下调功率
+	                         
 		if(NewDLim<(-2))NewDLim=(-2);                        //风扇把手是散热慢，加热快，所以限制回升速度最大2
+		else if(NewDLim<0)NewDLim=0;
 		NewDLim=DutyLimit-(NewDLim*(float)ThermalDutyStepK);  //计算积分温控参数
 		//占空比限幅
 		if(NewDLim>NoThrottleDutylim)NewDLim=NoThrottleDutylim;
@@ -170,7 +172,8 @@ void TempDegDetect(void)
 		//电压部分的积分温控	
 		NewVLIM=(float)(Data.Systemp-ThrottleMaintainTemp); //计算误差值	
 		if(Data.Systemp>(PowerOffTemp-5)&&NewVLIM>0)NewVLIM*=2.5; //系统温度接近过热关机点，迅速提升比例系数快速下调功率
-		if(NewVLIM<(-2))NewVLIM=(-2);                        //风扇把手是散热慢，加热快，所以限制回升速度最大2
+		if(NewVLIM<(-2))NewVLIM=(-2);                        
+		else if(NewVLIM<0)NewVLIM=0;                     				//风扇把手是散热慢，加热快，所以限制回升速度最大2
 		NewVLIM=VoltageLimit-(NewVLIM*(float)ThermalVoltStepK); //计算电压的积分参数
 		//电压限幅
 		if(NewVLIM>NoThrottleVlim)NewVLIM=NoThrottleVlim;
