@@ -41,7 +41,7 @@ Pause功能。同时该文件负责完成DCDC输出模块的配置和自我测试。
 ****************************************************************************/ 
 
 //输出电流环VREF基准配置
-#define CurrentCompFactor 2 //输出电流结果补偿系数（补偿硬件的增益误差带来的电流误差，单位%，-表示减小）
+#define CurrentCompFactor 0 //输出电流结果补偿系数（补偿硬件的增益误差带来的电流误差，单位%，-表示减小）
 #define MainChannelShuntmOhm 1.00 //主通道的检流电阻阻值(mR)
 #define CurrentSenseOpAmpGain 100 //电流检测放大器的增益
 
