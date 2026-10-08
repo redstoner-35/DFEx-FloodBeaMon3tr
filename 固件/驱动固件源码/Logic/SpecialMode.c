@@ -6,6 +6,12 @@
 的进入以及退出逻辑，并且实现系统特殊模式（战术点亮、锁定等）的逻辑切换和显示
 
 **	History: 
+
+				2026年9月25日  14:11
+														 1.调整进入极亮和爆闪之前的逻辑，调用挡位记忆模块进
+															 行记录实现在系统开机状态直接双击极亮时进入双击前
+															 的挡位。
+
         2026年9月14日  17:18 1.修改睡眠时间进入和退出函数，解决进入战术模式后因
 															 睡眠时间未被重置而引起战术模式自动退出的故障。
 				
@@ -105,7 +111,11 @@ void TryEnterTurboStrobeProcess(unsigned char Count)
 		//双击极亮
 		case 2:	
 			//电池电量充足且没有触发关闭极亮的保护，正常开启
-			if(CellVoltage>3450&&!IsDisableTurbo)SwitchToGear(Mode_Turbo); 
+			if(CellVoltage>3450&&!IsDisableTurbo)
+				 {
+			   ModeMemoryHandler();        //进入之前覆写挡位记忆，保留进入之前的挡位
+				 SwitchToGear(Mode_Turbo); 
+				 }
 			//电池电池电量不足或者极亮被锁定尝试开到高亮去
 			else PowerToNormalMode(Mode_High);	
 		  break;
@@ -117,7 +127,7 @@ void TryEnterTurboStrobeProcess(unsigned char Count)
 				//在开机状态下三击，记忆进入前的挡位并进入到上次退出之前的状态
 				if(CurrentMode->ModeIdx!=Mode_OFF)
 					{
-				  LastMode=CurrentMode->ModeIdx; 
+				  ModeMemoryHandler();        																		//进入之前覆写挡位记忆，保留进入之前的挡位
 					SwitchToGear(!IsSpecMemEnabled?Mode_Strobe:LastSpecialMode);
 					}
 				//关机状态下三击，一键爆闪

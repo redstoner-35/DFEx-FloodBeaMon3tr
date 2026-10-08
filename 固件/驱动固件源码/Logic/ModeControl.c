@@ -7,6 +7,11 @@
 
 **	History: 
 
+				2026年9月25日  14:11
+														 1.新增负责实现挡位记忆更新的函数，解决系统在开机状
+															 态下直接进入极亮后，挡位记忆未正确记录进入极亮之
+															 前的挡位的问题。
+														 
 				2025年12月28日 12:42 1.修复QuerySystemFullScaleCurrent()函数中，负责在
 															 极亮挡位激活并开启POWER模式时，错误的取出ECO模式
 															 的输出电流导致极亮的LM值和电流工作异常。
@@ -152,14 +157,20 @@
 
 #elif defined(USING_LED_FL8032P_G2)	
 	#message "LED Type : DFEx-Super LED+ FL8032P Gen2"
-	#message "LED Current : 42.0A"
-	#message "Note : ECO Current will be increased to 24A for just over 100K Lumens."
+	#message "LED Current : 43.75A"
+	#message "Note : ECO Current will be increased to 25A for just over 100K Lumens."
 
 #else
 	#message "LED Type : Unknown LED"
 	#message "LED Current : Undefined"	 
 
 #endif
+
+//如果爆闪电流被限制，则额外弹出提示
+#if (StrobeICCMAX == 43200 && TurboICCMAX > 43200)
+	#message "Note:Strobe Current is limited to 43.2A to prevent too much stress on driver."
+#endif
+
 #message "****************************************************************************"
 /****************************************************************************/
 /*	Local constant variable definitions('static const 'or 'code')
@@ -690,6 +701,28 @@ void SwitchToGear(ModeIdxDef TargetMode)
 	if(TargetMode>1&&TargetMode<11&&IsLastModeNeedStepDown)RecalcPILoop(); 	
 	}	
 
+//挡位记忆处理
+void ModeMemoryHandler(void)
+	{
+	//系统关闭挡位记忆，如果当前是无极调光，则恢复到初始电流
+	if(!IsMainMemEnabled)
+		{
+		if(IsRampEnabled)		//无极调光开启，恢复到最低电流
+			{
+			LoadMinimumRampCurrentToRAM();
+			SaveSysConfig(0);                //保存一遍配置，确保写入到EEPROM里面的数据一定是最低电流
+			}
+		//非无极调光模式，记忆恢复到最低挡位
+		else LastMode=Mode_ExtremelyLow;
+		}
+	//系统开启挡位记忆，进行写入
+	else if(CurrentMode->IsModeHasMemory)
+		{
+		if(CurrentMode->ModeIdx<5||CurrentMode->ModeIdx>9)return; //非循环挡位，不允许记忆
+		LastMode=CurrentMode->ModeIdx;
+		}
+	}	
+	
 //执行关机处理的函数	
 void ReturnToOFFState(void)
 	{
@@ -709,19 +742,8 @@ void ReturnToOFFState(void)
 			if(CurrentMode->IsNeedStepDown)Current=CurrentBuf; //如果当前挡位需要温控，则在关机的时候直接取目前已执行的电流结果
 			IsSlowFading=1;	//非战术模式的常亮挡位触发渐暗特效
 		}
-  //执行挡位记忆并跳回到关机状态
-	if(IsMainMemEnabled) //挡位记忆开启
-		{
-		//该挡位有记忆，存下关机前的状态
-		if(CurrentMode->IsModeHasMemory)LastMode=CurrentMode->ModeIdx;
-		}
-	//无级调光模式下关闭挡位记忆，强制恢复到初始电流
-	else if(IsRampEnabled)
-		{
-		LoadMinimumRampCurrentToRAM();
-		SaveSysConfig(0);                //保存一遍配置，确保写入到EEPROM里面的数据一定是最低电流
-		}
-	//执行关机处理，强制跳回到关机挡位
+	//执行挡位记忆和关机处理，强制跳回到关机挡位
+	ModeMemoryHandler();
 	SwitchToGear(Mode_OFF); 
 	}		
 	
@@ -831,8 +853,8 @@ void ModeSwitchFSM(void)
 			switch(ClickCount)
 				{
 				case 1:
-					//侧按单击开机，进入循环挡位上一次关闭的模式（仅在开启了记忆的条件下）
-					PowerToNormalMode(!IsMainMemEnabled?Mode_ExtremelyLow:LastMode);
+					//侧按单击开机，进入循环挡位上一次关闭的模式
+					PowerToNormalMode(LastMode);
 					break; 	
 				case 4:
 					//在开启夜行模式的时候四击进入。

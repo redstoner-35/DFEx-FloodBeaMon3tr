@@ -6,6 +6,11 @@
 挡位系统输出给其余模块的状态全局变量。
 
 **	History: 
+				2026年9月25日  14:11
+														 1.新增负责实现挡位记忆更新的函数入口供其他模块调用，解决系
+															 统在开机状态下直接进入极亮后，挡位记忆未正确记录进入极亮
+															 之前的挡位的问题。
+
 				2025年12月26日 10:05 1.新增走夜路模式的相关模式entry的声明。
 														 2.新增针对设置四击挡位功能的功能选择位的声明
 														 3.将输出状态机拆分为逻辑判断+电流执行后，新增电流执行部分
@@ -140,10 +145,11 @@ void ReturnToOFFState(void);							//关机
 /************************************************************************************/
 /* Extern Functions definition - Mode Switching Logic and Timing Handler */
 /************************************************************************************/	
-void ModeFSMTIMHandler(void);//挡位状态机所需的软件定时器处理
-void ModeSwitchFSM();//挡位状态机	
-void HoldSwitchGearCmdHandler(void); //换挡间隔生成	
-void ApplyOutputCurrent(void); //应用输出电流参数
+void ModeFSMTIMHandler(void);							//挡位状态机所需的软件定时器处理
+void ModeSwitchFSM();											//挡位状态机	
+void HoldSwitchGearCmdHandler(void); 			//换挡间隔生成	
+void ApplyOutputCurrent(void); 						//应用输出电流参数
+void ModeMemoryHandler(void);             //挡位记忆处理
 
 /************************************************************************************/
 /* Extern Functions definition - Current Query */

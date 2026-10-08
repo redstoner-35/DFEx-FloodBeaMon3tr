@@ -729,7 +729,7 @@ void ModeSwitchFSM(void)
 			{
 			LEDMode=LED_GreenBlinkThird; 
 			IsSystemLocked=0;
-			if(CellVoltage>2850)DisplayUnlockTIM=12;  //电池电压足够时令风扇低速旋转1.5秒
+			if(CellVoltage>2850)DisplayUnlockTIM=25;  //电池电压足够时令风扇低速旋转3秒（有些风扇启动慢，3秒才能转起来）
 			SaveSysConfig(0);
 			}
 		//关机状态下双击+长按查看电压

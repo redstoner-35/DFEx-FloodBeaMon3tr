@@ -41,12 +41,12 @@ Pause功能。同时该文件负责完成DCDC输出模块的配置和自我测试。
 ****************************************************************************/ 
 
 //输出电流环VREF基准配置
-#define CurrentCompFactor 0 //输出电流结果补偿系数（补偿硬件的增益误差带来的电流误差，单位%，-表示减小）
+#define CurrentCompFactor 2 //输出电流结果补偿系数（补偿硬件的增益误差带来的电流误差，单位%，-表示减小）
 #define MainChannelShuntmOhm 1.00 //主通道的检流电阻阻值(mR)
 #define CurrentSenseOpAmpGain 100 //电流检测放大器的增益
 
 //极亮挡位MPPT缓升参数配置
-#define TurboMPPTILEDStep 180 //输入MPPT进行电流尝试的步进值，单位1.5mA per Step
+#define TurboMPPTILEDStep 75 //输入MPPT进行电流尝试的步进值，单位1.5mA per Step
 
 //输出PWMDAC预充电压配置
 #define PWMDACPreCharge 190 	//PWMDAC在正常启动流程下的预充电压(LSB=0.1V，默认系统设置为14.2V)

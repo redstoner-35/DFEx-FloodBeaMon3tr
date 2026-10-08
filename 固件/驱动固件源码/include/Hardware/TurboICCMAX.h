@@ -29,9 +29,9 @@
 #elif defined(Custom_LED_ICCMAX)	//使用自定义LED
 
 	//判断电流是否合法
-	#if (Custom_LED_ICCMAX < 22000 | Custom_LED_ICCMAX > 41000)
+	#if (Custom_LED_ICCMAX < 22000 | Custom_LED_ICCMAX > 44000)
 	#error "Error 00C: Override Turbo Current Value is Out of range!"
-	#error "Error 00C: You Should Enter Any Value between 22000 to 41000(mA)!"
+	#error "Error 00C: You Should Enter Any Value between 22000 to 44000(mA)!"
 	#else
   //数值合法，引用
 	#warning "Turbo ICC has been set to override mode,Please Verity ICC Settings to avoid destroy your LED."
@@ -77,7 +77,7 @@
 
 #elif defined(USING_LED_FL8032P_G2)
 
-	#define TurboICCMAX 42000
+	#define TurboICCMAX 43750
 
 //专属定制版本加强NBT160
 #elif defined(USING_LED_FV7011I)
@@ -106,11 +106,11 @@
   
 	#if (defined(USING_LED_FL8032P_G2))
 	    //使用2代8032P 为了ECO上10万，略微加一点电流
-			#define ECOTurboICCMAX 23000
+			#define ECOTurboICCMAX 25000
 	
 	#elif (defined(USING_LED_FL8032P))
 		   //使用FL8032P灯珠，ECO模式限制为23A
-      #define ECOTurboICCMAX 24000
+      #define ECOTurboICCMAX 23000
 	
 	#elif (defined(USING_LED_FV7011I)|defined(USING_LED_N7270HP))
 	   //使用FV7011I或者N7270灯珠，ECO模式限制为25A
@@ -126,6 +126,8 @@
 	
 	//爆闪电流定义
 	#ifdef FullPowerStrobe	
+
+	
 			//使用NBT160灯珠，为了保护金线避免金线被炸断，限制爆闪功率至每灯珠120W		
 	    #if (defined(USING_LED_FV7011I)|defined(USING_LED_NBT160))
 			  
@@ -144,7 +146,10 @@
 				#define StrobeICCMAX CustomStrobeCurrent
 				
 				#endif
-
+			//为了避免过大的瞬态，限制爆闪电流最高43.2A
+	    #elif (TurboICCMAX > 43200)
+			  
+				#define StrobeICCMAX 43200
 				
 			#else
 			  //没有自定义爆闪电流，使用极亮电流
