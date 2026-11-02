@@ -1,0 +1,79 @@
+C51 COMPILER V9.60.7.0   UNUSEDIO                                                          10/31/2026 08:53:26 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE UNUSEDIO
+OBJECT MODULE PLACED IN .\Objects\UnusedIO.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE Hardware\UnusedIO.c OBJECTADVANCED OPTIMIZE(9,SPEED) REGFILE(.\Objects\X
+                    -RFan-Ultra.ORC) BROWSE MODDP2 INCDIR(.\include\System;.\StdDriver\inc;.\Hardware;.\include\Hardware;.\include\Middleware
+                    -;.\include\Logic) DEFINE(EnableStdGPIO,EnableHyper1S) DEBUG PRINT(.\Listings\UnusedIO.lst) TABS(2) OBJECT(.\Objects\Unus
+                    -edIO.obj)
+
+line level    source
+
+   1          /****************************************************************************/
+   2          /** \file UnusedIO.c
+   3          /** \Author redstoner_35
+   4          /** \Project Xtern Ripper Hyper Fan Ultra Edition
+   5          /** \Description 这个文件负责操作GPIO寄存器，将系统内所有未使用的IO全部mask为低
+   6                           电平对外输出模式，避免IO浮空引起的待机电流异常。
+   7          **
+   8          **  History:
+   9                  2026年9月11日 Initial Release
+  10          **  
+  11          *****************************************************************************/
+  12          /****************************************************************************/
+  13          /*  include files
+  14          *****************************************************************************/
+  15          #include "GPIO.h"
+  16          #include "PinDefs.h"
+  17          #include "cms8s6990.h"
+  18          
+  19          /****************************************************************************/
+  20          /* Global Function implementation - (in header files with 'extern')
+  21          ****************************************************************************/ 
+  22          void MaskUnusedIO(void)
+  23            {
+  24   1        //Mask掉无用的IO强制输出0 
+  25   1        P0TRIS|=P0UnusedPIN;
+  26   1        P1TRIS|=P1UnusedPIN;
+  27   1        P2TRIS|=P2UnusedPIN;
+  28   1        P3TRIS|=P3UnusedPIN;
+  29   1        //所有无用的IO强制输出0
+  30   1        P0&=~P0UnusedPIN;
+  31   1        P1&=~P1UnusedPIN;
+  32   1        P2&=~P2UnusedPIN;
+  33   1        P3&=~P3UnusedPIN;
+  34   1        //所有对外IO关闭上下拉电阻
+  35   1        P0UP&=~P0UnusedPIN;
+  36   1        P0RD&=~P0UnusedPIN;
+  37   1        
+  38   1        P1UP&=~P1UnusedPIN;
+  39   1        P1RD&=~P1UnusedPIN;
+  40   1          
+  41   1        P2UP&=~P2UnusedPIN;
+  42   1        P2RD&=~P2UnusedPIN;
+  43   1          
+  44   1        P3UP&=~P3UnusedPIN;
+  45   1        P3RD&=~P3UnusedPIN;
+  46   1        }
+  47          /*****************************  End Of File  ******************************/
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     73    ----
+   CONSTANT SIZE    =   ----    ----
+C51 COMPILER V9.60.7.0   UNUSEDIO                                                          10/31/2026 08:53:26 PAGE 2   
+
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

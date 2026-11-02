@@ -1,0 +1,75 @@
+C51 COMPILER V9.60.7.0   SYSRESET                                                          10/31/2026 08:53:25 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE SYSRESET
+OBJECT MODULE PLACED IN .\Objects\SysReset.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE StdDriver\src\SysReset.c OBJECTADVANCED OPTIMIZE(9,SPEED) REGFILE(.\Obje
+                    -cts\XRFan-Ultra.ORC) BROWSE MODDP2 INCDIR(.\include\System;.\StdDriver\inc;.\Hardware;.\include\Hardware;.\include\Middl
+                    -eware;.\include\Logic) DEFINE(EnableStdGPIO,EnableHyper1S) DEBUG PRINT(.\Listings\SysReset.lst) TABS(2) OBJECT(.\Objects
+                    -\SysReset.obj)
+
+line level    source
+
+   1          /****************************************************************************/
+   2          /** \file Sysreset.c
+   3          /** \Author redstoner_35
+   4          /** \Project Xtern Ripper Hyper Fan Ultra Edition
+   5          /** \Description 这个文件负责底层执行MCU重启的设备驱动实现
+   6          **
+   7          **  History:
+   8                  2026年9月11日 Initial Release
+   9          **  
+  10          *****************************************************************************/
+  11          /****************************************************************************/
+  12          /*  include files
+  13          *****************************************************************************/
+  14          #include "cms8s6990.h"
+  15          #include "SysReset.h"
+  16          
+  17          /****************************************************************************/
+  18          /*  Global function implantation(called by 'extern')
+  19          ****************************************************************************/ 
+  20          
+  21          //生成系统复位
+  22          #pragma optimize(0)
+  23          void TriggerSoftwareReset(void)
+  24            {
+  25   1        EA=0;
+  26   1        _nop_();
+  27   1        TA=0xAA;
+  28   1        TA=0x55;  //往TA寄存器写55AA解锁
+  29   1        WDCON=0x80;  //令WDTCON[7]=1，触发系统复位
+  30   1        while(1);
+  31   1        }
+  32          
+  33          //清除软件复位标志位
+  34          #pragma optimize(0)
+  35          void ClearSoftwareResetFlag(void)
+  36            {
+  37   1        EA=0;
+  38   1        _nop_();
+  39   1        TA=0xAA;
+  40   1        TA=0x55;  //往TA寄存器写55AA解锁
+  41   1        WDCON&=0x7F;  //令WDTCON[7]=0，触发系统复位
+  42   1        }
+  43          /*****************************  End Of File  ******************************/
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     29    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+C51 COMPILER V9.60.7.0   SYSRESET                                                          10/31/2026 08:53:25 PAGE 2   
+
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,121 @@
+C51 COMPILER V9.60.7.0   LOWVOLTAGEPROT                                                    10/31/2026 08:53:28 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE LOWVOLTAGEPROT
+OBJECT MODULE PLACED IN .\Objects\LowVoltageProt.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE Logic\LowVoltageProt.c OBJECTADVANCED OPTIMIZE(9,SPEED) REGFILE(.\Object
+                    -s\XRFan-Ultra.ORC) BROWSE MODDP2 INCDIR(.\include\System;.\StdDriver\inc;.\Hardware;.\include\Hardware;.\include\Middlew
+                    -are;.\include\Logic) DEFINE(EnableStdGPIO,EnableHyper1S) DEBUG PRINT(.\Listings\LowVoltageProt.lst) TABS(2) OBJECT(.\Obj
+                    -ects\LowVoltageProt.obj)
+
+line level    source
+
+   1          /****************************************************************************/
+   2          /** \file LowVoltageProt.c
+   3          /** \Author redstoner_35
+   4          /** \Project Xtern Ripper Hyper Fan Ultra Edition
+   5          /** \Description 这个文件是上层应用层逻辑，负责实现系统的低电量阶梯降档和自动关机
+   6                           逻辑，
+   7          **  History:
+   8                  2026年9月11日 Initial Release
+   9          **  
+  10          *****************************************************************************/
+  11          /****************************************************************************/
+  12          /*  include files
+  13          *****************************************************************************/
+  14          #include "BattDisplay.h"
+  15          #include "ModeSel.h"
+  16          #include "OutputChannel.h"
+  17          #include "SideKey.h"
+  18          #include "stdbool.h"
+  19          
+  20          /****************************************************************************/
+  21          /*  Local pre-processor symbols/macros('#define') For Parameter definition
+  22          ****************************************************************************/
+  23          #define BatteryAlertDelay 10  //电池警报延迟(1单位=0.125秒)
+  24          #define BatteryFaultDelay 2   //电池故障强制跳档/关机的延迟(1单位=0.125秒)
+  25          
+  26          /****************************************************************************/
+  27          /*  Local variable definitions('static')
+  28          ****************************************************************************/ 
+  29          static xdata unsigned char BattAlertTimer; //电池低电压告警处理
+  30          
+  31          /****************************************************************************/
+  32          /* Local Function implementation - 'static'
+  33          ****************************************************************************/ 
+  34          
+  35          //低电量保护函数
+  36          static void StartBattAlertTimer(void)
+  37            {
+  38   1        //启动定时器
+  39   1        if(!BattAlertTimer)BattAlertTimer=1;
+  40   1        } 
+  41          
+  42          /****************************************************************************/
+  43          /* Global Function implementation - Timer Handler
+  44          ****************************************************************************/   
+  45            
+  46          //电池低电量报警计时器的处理函数
+  47          void BattAlertTIMHandler(void)
+  48            {
+  49   1        //电量警报
+  50   1        if(BattAlertTimer&&BattAlertTimer<(BatteryAlertDelay+1))BattAlertTimer++;
+  51   1        } 
+  52            
+C51 COMPILER V9.60.7.0   LOWVOLTAGEPROT                                                    10/31/2026 08:53:28 PAGE 2   
+
+  53          /****************************************************************************/
+  54          /* Global Function implementation - Logic Handler
+  55          ****************************************************************************/   
+  56            
+  57          //电池低电量保护函数
+  58          void BatteryLowAlertProcess(bool IsNeedToShutOff,ModeIdxDef ModeJump)
+  59            {
+  60   1        unsigned char Thr=BatteryFaultDelay;
+  61   1        bit IsChangingGear;
+  62   1        //获取手电按键的状态
+  63   1        if(getSideKey1HEvent())IsChangingGear=1;
+  64   1        else IsChangingGear=getSideKeyHoldEvent();
+  65   1        //控制计时器启停
+  66   1        if(!IsBatteryFault) //电池没有发生低压故障
+  67   1          {
+  68   2          Thr=BatteryAlertDelay; //没有故障可以慢一点降档
+  69   2          //当前在换挡阶段或者没有告警，停止计时器,否则启动
+  70   2          if(!IsBatteryAlert||IsChangingGear)BattAlertTimer=0;
+  71   2          else StartBattAlertTimer();
+  72   2          }
+  73   1        else StartBattAlertTimer();//发生低压告警立即启动定时器
+  74   1        //定时器计时已满，执行对应的动作
+  75   1        if(BattAlertTimer>Thr)
+  76   1          {
+  77   2          //当前挡位处于需要在触发低电量保护时主动关机的状态  
+  78   2          if(IsNeedToShutOff)ReturnToOFFState();
+  79   2          //当前处于换挡模式不允许执行降档但是需要判断电池是否过低然后强制关闭
+  80   2          else if(IsChangingGear&&IsBatteryFault)ReturnToOFFState();
+  81   2          //不需要关机，触发换挡动作
+  82   2          else
+  83   2            {
+  84   3            BattAlertTimer=0;//重置定时器至初始值
+  85   3            SwitchToGear(ModeJump); //复位到指定挡位
+  86   3            }
+  87   2          }
+  88   1        } 
+  89          /*****************************  End Of File  ******************************/
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    132    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      1    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----       1
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----       1
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,231 @@
+C51 COMPILER V9.60.7.0   TEMPCONTROL                                                       10/31/2026 08:53:28 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE TEMPCONTROL
+OBJECT MODULE PLACED IN .\Objects\TempControl.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE Logic\TempControl.c OBJECTADVANCED OPTIMIZE(9,SPEED) REGFILE(.\Objects\X
+                    -RFan-Ultra.ORC) BROWSE MODDP2 INCDIR(.\include\System;.\StdDriver\inc;.\Hardware;.\include\Hardware;.\include\Middleware
+                    -;.\include\Logic) DEFINE(EnableStdGPIO,EnableHyper1S) DEBUG PRINT(.\Listings\TempControl.lst) TABS(2) OBJECT(.\Objects\T
+                    -empControl.obj)
+
+line level    source
+
+   1          /****************************************************************************/
+   2          /** \file TempControl.c
+   3          /** \Author redstoner_35
+   4          /** \Project Xtern Ripper Hyper Fan Ultra Edition
+   5          /** \Description Õâ¸öÎÄ¼şÊÇÉÏ²ãÓ¦ÓÃ²ãÂß¼­£¬¸ºÔğÊµÏÖÇı¶¯µÄ¹ıÈÈ¹Ø»ú±£»¤ºÍ»ı·ÖÎÂ¿Ø½µ
+   6                           µµ±ÜÃâÊÖ±ú¹ıÈÈµÄÎÂ¿Ø±£»¤¹¦ÄÜ£¬
+   7          **  History:
+   8                  2026Äê9ÔÂ11ÈÕ Initial Release
+   9          **  
+  10          *****************************************************************************/
+  11          /****************************************************************************/
+  12          /*  include files
+  13          *****************************************************************************/
+  14          #include "LEDMgmt.h"
+  15          #include "FastOp.h"
+  16          #include "ModeSel.h"
+  17          #include "ADCCfg.h"
+  18          #include "OutputChannel.h"
+  19          #include "BattDisplay.h"
+  20          
+  21          /****************************************************************************/
+  22          /*  Local pre-processor symbols/macros('#define') For Parameter definition
+  23          ****************************************************************************/
+  24          //ÎÂ¿ØÎÂ¶È²ÎÊı
+  25          #define NoThrottleTemp 47  //ÎÂ¿ØÍ£Ö¹ÎÂ¶È
+  26          #define ThrottleMaintainTemp 49 //ÎÂ¿ØÎ¬³ÖÎÂ¶È
+  27          #define PowerOffTemp 68         //¹ıÈÈ¹Ø»úÎÂ¶È
+  28          
+  29          //»ı·ÖÎÂ¿ØÏµÊı
+  30          #define ThermalDutyStepK 0.005  //Õ¼¿Õ±ÈK
+  31          #define ThermalVoltStepK 0.002  //µçÑ¹K
+  32          
+  33          //ÎÂ¿Ø½µµµ·¶Î§ÏŞÖÆ
+  34          #define NoThrottleVlim 12.0
+  35          #define MaxThrottleVlim 8.0    //²»½µµµºÍ×î´ó½µµµµÄµçÑ¹ÏŞÖÆ
+  36          #define NoThrottleDutylim 100
+  37          #define MaxThrottleDutylim 40    //²»½µµµºÍ×î´ó½µµµµÄÕ¼¿Õ±ÈÏŞÖÆ
+  38          
+  39          /****************************************************************************/
+  40          /*  Local variable definitions('static')
+  41          ****************************************************************************/
+  42          static xdata unsigned char TempSensorStallTIM;        //ÎÂ¶È´«¸ĞÆ÷¹ÊÕÏ¼ÆÊ±
+  43          static bit SysOverheatFlag;                           //ÏµÍ³¹ıÈÈflag
+  44          static bit IsThermalThrottle;                         //ÊÇ·ñ´¥·¢ÎÂ¿Ø±£»¤
+  45          static xdata float DutyLimit;                           //Õ¼¿Õ±ÈÏŞÖÆ
+  46          static xdata float VoltageLimit;                        //µçÑ¹ÏŞÖÆ
+  47          
+  48          /****************************************************************************/
+  49          /* Global Function implementation - Exported Status
+  50          ****************************************************************************/ 
+  51          
+  52          float QueryDutyLimit(void)
+C51 COMPILER V9.60.7.0   TEMPCONTROL                                                       10/31/2026 08:53:28 PAGE 2   
+
+  53            {
+  54   1        //»ñÈ¡ÏµÍ³µÄÕ¼¿Õ±ÈÏŞÖÆÖµ
+  55   1        return DutyLimit;
+  56   1        }
+  57          
+  58          float QueryVoltageLimit(void)
+  59            {
+  60   1        //»ñÈ¡ÏµÍ³µÄµçÑ¹ÏŞÖÆÖµ
+  61   1        return VoltageLimit;
+  62   1        } 
+  63            
+  64          //»ñÈ¡ÏµÍ³µÄÎÂ¿Ø×´Ì¬ÊÇ·ñºÏ·¨£¬ÊÇ·ñÔÊĞí¿ª»ú
+  65          bit QueryIfSysThermalIsOK(void)
+  66            {
+  67   1        if(TempSensorStallTIM>9)return 0; //ÎÂ¶È´«¸Ğ¹ÊÕÏ£¬²»ÔÊĞí¿ª»ú
+  68   1        if(SysOverheatFlag)return 0;
+  69   1        //ÆäÓàÇé¿öÔÊĞí¿ª»ú
+  70   1        return 1;
+  71   1        }
+  72          
+  73          //ÊÇ·ñ´¥·¢ÎÂ¿Ø½µµµ
+  74          bit IsThermalStepdown(void)
+  75            {
+  76   1        //ÏµÍ³Ã»¿ª»ú·µ»Ø0£¬Èç¹ûµ±Ç°´¦ÓÚµçÁ¿²éÑ¯½×¶Î£¬Ò²·µ»Ø0±ÜÃâ¸ÉÈÅµçÁ¿²éÑ¯
+  77   1        if(IsVshowFSMInAction())return 0;
+  78   1        if(CurrentMode->ModeIdx==Mode_OFF)return 0;
+  79   1        //NTCÒì³£·µ»Ø0
+  80   1        if(!Data.IsNTCOK)return 0;
+  81   1        return IsThermalThrottle;  //ÎÂ¶È³¬¹ı½µµµãĞÖµ£¬¾¯±¨
+  82   1        } 
+  83            
+  84          //¼ÓÔØÎÂ¿ØÏµÍ³³õÊ¼²ÎÊı
+  85          void ThermalSystem_Init(void)
+  86            {
+  87   1        //¼ÓÔØÄÚ²¿¼ÆÊ±±äÁ¿ºÍflag
+  88   1        TempSensorStallTIM=0;
+  89   1        SysOverheatFlag=0;
+  90   1        IsThermalThrottle=0;
+  91   1        //¼ÓÔØµçÑ¹ºÍÕ¼¿Õ±ÈÏŞÖÆ
+  92   1        DutyLimit=NoThrottleDutylim;
+  93   1        VoltageLimit=NoThrottleVlim;
+  94   1        } 
+  95            
+  96          //¹ıÈÈ±£»¤´¦Àí
+  97          void OverHeatProtect(void)
+  98            {
+  99   1        //NTC¹ÊÕÏ£¬²»Ö´ĞĞ
+ 100   1        if(!Data.IsNTCOK)return;
+ 101   1        //Ê©ÃÜÌØÖÍ»Ø¿ØÖÆ
+ 102   1        if(Data.Systemp>PowerOffTemp)SysOverheatFlag=1;  //ÏµÍ³³¬¹ı¹Ø»úÎÂ¶È£¬flagÖÃÆğ
+ 103   1        else if(SysOverheatFlag&&Data.Systemp<ThrottleMaintainTemp)SysOverheatFlag=0;   //Flag±»ÖÃÆğ£¬È»ºóÍâ¿ÇÎÂ¶
+             -ÈµÍÓÚÎÂ¿ØÎ¬³ÖÎÂ¶È£¬ÏµÍ³¹ıÈÈFlagÇå³ı
+ 104   1        //Èç¹ûÏµÍ³´¦ÓÚ¿ª»ú×´Ì¬ÇÒ·¢Éú¹ıÈÈ£¬Ç¿ÖÆ¹Ø±Õ
+ 105   1        if(SysOverheatFlag&&CurrentMode->ModeIdx!=Mode_OFF)
+ 106   1          {
+ 107   2          ReturnToOFFState();
+ 108   2          LEDMode=LED_AmberBlinkFifth;  //ÏµÍ³¹ıÈÈ£¬»ÆÉ«ÉÁÎå´Î²¢Ç¿ÖÆ¹Ø»ú
+ 109   2          }
+ 110   1        } 
+ 111            
+ 112          //ÎÂ¶È´«¸Ğ¼ì²â
+ 113          void TempSensorStallDetect(void)
+C51 COMPILER V9.60.7.0   TEMPCONTROL                                                       10/31/2026 08:53:28 PAGE 3   
+
+ 114            {
+ 115   1        if(!Data.IsNTCOK)
+ 116   1          {
+ 117   2          //´«¸ĞÆ÷¹ÊÕÏ³¬¹ı1Ãë
+ 118   2          if(TempSensorStallTIM==10)
+ 119   2            {
+ 120   3            //ÏµÍ³´¦ÓÚ¿ª»ú×´Ì¬£¬Ç¿ÖÆ¹Ø±Õ
+ 121   3            if(CurrentMode->ModeIdx!=Mode_OFF)
+ 122   3              {
+ 123   4              ReturnToOFFState();
+ 124   4              LEDMode=LED_RedBlinkFifth;  //ÎÂ¶È´«¸ĞÆ÷¹ÊÕÏ³¬¹ı1Ãë£¬ºìÉ«ÉÁÎå´Î²¢Ç¿ÖÆ¹Ø»ú
+ 125   4              }
+ 126   3            //È·±£Ö»Ö´ĞĞÒ»´Î
+ 127   3            TempSensorStallTIM=11;
+ 128   3            }
+ 129   2          //´«¸ĞÆ÷¹ÊÕÏ·¢Éúµ«ÊÇ»¹Ã»µ½Ê±¼ä£¬ÀÛ¼Æ¼ÆÊı
+ 130   2          else if(TempSensorStallTIM<10)TempSensorStallTIM++;
+ 131   2          }
+ 132   1        //´«¸ĞÆ÷Õı³££¬Çå³ı¼ÆÊıÆ÷
+ 133   1        else TempSensorStallTIM=0;
+ 134   1        }
+ 135            
+ 136          //ÏßĞÔ½µ¶î¼ÆËã
+ 137          void TempDegDetect(void)
+ 138            {
+ 139   1        float NewVLIM,NewDLim;
+ 140   1        //NTC¹ÊÕÏ»òÕß×ª»»Î´Íê³É£¬²»Ö´ĞĞ
+ 141   1        if(!Data.IsNTCOK||!IsADResultOK)return;
+ 142   1        IsADResultOK=0;                   //±¾´Î½á¹ûÊ¹ÓÃÍê±Ï£¬¸´Î»µÈ´ıÏÂ´ÎAD²ÉÑù½áÊø
+ 143   1        //Ö´ĞĞ½µµµÖ¸Ê¾ÅĞ¶Ï
+ 144   1        if(Data.Systemp>ThrottleMaintainTemp)IsThermalThrottle=1;
+ 145   1        else if(IsThermalThrottle&&Data.Systemp<NoThrottleTemp)IsThermalThrottle=0; 
+ 146   1          
+ 147   1        //Ã»ÓĞ½µµµ»òÕßÏµÍ³´¦ÓÚ¹Ø±Õ×´Ì¬£¬²»ÏŞÖÆ
+ 148   1        if(CurrentMode->ModeIdx==Mode_OFF||!IsThermalThrottle)
+ 149   1          {
+ 150   2          NewVLIM=NoThrottleVlim;
+ 151   2          NewDLim=NoThrottleDutylim;
+ 152   2          }
+ 153   1        //´¥·¢½µµµ£¬µ±Ç°ÊÇPWMÄ£Ê½£¬Ö´ĞĞPWM»ı·ÖÎÂ¿Ø»ºÂı½µµÍ³öÁ¦
+ 154   1        else if(IsEnablePWMFan)
+ 155   1          {
+ 156   2          //Õ¼¿Õ±È²¿·ÖµÄ»ı·ÖÎÂ¿Ø
+ 157   2          NewDLim=(float)(Data.Systemp-ThrottleMaintainTemp); //¼ÆËãÎó²îÖµ
+ 158   2          if(Data.Systemp>(PowerOffTemp-5)&&NewDLim>0)NewDLim*=2.5; //ÏµÍ³ÎÂ¶È½Ó½ü¹ıÈÈ¹Ø»úµã£¬Ñ¸ËÙÌáÉı±ÈÀıÏµÊı¿ìËÙ
+             -ÏÂµ÷¹¦ÂÊ
+ 159   2                                 
+ 160   2          if(NewDLim<(-2))NewDLim=(-2);                        //·çÉÈ°ÑÊÖÊÇÉ¢ÈÈÂı£¬¼ÓÈÈ¿ì£¬ËùÒÔÏŞÖÆ»ØÉıËÙ¶È×î´ó2
+ 161   2          else if(NewDLim<0)NewDLim=0;
+ 162   2          NewDLim=DutyLimit-(NewDLim*(float)ThermalDutyStepK);  //¼ÆËã»ı·ÖÎÂ¿Ø²ÎÊı
+ 163   2          //Õ¼¿Õ±ÈÏŞ·ù
+ 164   2          if(NewDLim>NoThrottleDutylim)NewDLim=NoThrottleDutylim;
+ 165   2          if(NewDLim<MaxThrottleDutylim)NewDLim=MaxThrottleDutylim;  //ÏŞÖÆÕ¼¿Õ±È·¶Î§
+ 166   2          //µçÑ¹Ö±½ÓÔØÈë²»×ö±ä¸ü
+ 167   2          NewVLIM=VoltageLimit; 
+ 168   2          }
+ 169   1        //µ±Ç°ÊÇµçÑ¹Ä£Ê½£¬Ö´ĞĞµçÑ¹ÎÂ¿Ø
+ 170   1        else
+ 171   1          {
+ 172   2          //µçÑ¹²¿·ÖµÄ»ı·ÖÎÂ¿Ø  
+ 173   2          NewVLIM=(float)(Data.Systemp-ThrottleMaintainTemp); //¼ÆËãÎó²îÖµ  
+ 174   2          if(Data.Systemp>(PowerOffTemp-5)&&NewVLIM>0)NewVLIM*=2.5; //ÏµÍ³ÎÂ¶È½Ó½ü¹ıÈÈ¹Ø»úµã£¬Ñ¸ËÙÌáÉı±ÈÀıÏµÊı¿ìËÙ
+C51 COMPILER V9.60.7.0   TEMPCONTROL                                                       10/31/2026 08:53:28 PAGE 4   
+
+             -ÏÂµ÷¹¦ÂÊ
+ 175   2          if(NewVLIM<(-2))NewVLIM=(-2);                        
+ 176   2          else if(NewVLIM<0)NewVLIM=0;                            //·çÉÈ°ÑÊÖÊÇÉ¢ÈÈÂı£¬¼ÓÈÈ¿ì£¬ËùÒÔÏŞÖÆ»ØÉıËÙ¶È×î´ó2
+ 177   2          NewVLIM=VoltageLimit-(NewVLIM*(float)ThermalVoltStepK); //¼ÆËãµçÑ¹µÄ»ı·Ö²ÎÊı
+ 178   2          //µçÑ¹ÏŞ·ù
+ 179   2          if(NewVLIM>NoThrottleVlim)NewVLIM=NoThrottleVlim;
+ 180   2          if(NewVLIM<MaxThrottleVlim)NewVLIM=MaxThrottleVlim;  //ÏŞÖÆµçÑ¹·¶Î§
+ 181   2          //PWMÕ¼¿Õ±ÈÖ±½ÓÔØÈë²»×ö±ä¸ü
+ 182   2          NewDLim=DutyLimit;  
+ 183   2          }
+ 184   1          
+ 185   1        //¼ì²éĞÂµÄÊıÖµÊÇ·ñ·¢Éú±ä¸ü£¬Èç¹û±ä¸ü£¬ÔòÓ¦ÓÃĞÂµÄ²ÎÊı
+ 186   1        if(NewDLim==DutyLimit&&NewVLIM==VoltageLimit)return;
+ 187   1        DutyLimit=NewDLim;
+ 188   1        VoltageLimit=NewVLIM;
+ 189   1        IsUpdateFanSpeed=1;     //ÎÂ¿Ø½á¹û¸üĞÂ£¬ĞèÒªÓ¦ÓÃĞÂµÄ·çÉÈ²ÎÊı¸üĞÂ×ªËÙ
+ 190   1        }
+ 191          /*****************************  End Of File  ******************************/
+ 192            
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1055    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      9    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----       8
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      2    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

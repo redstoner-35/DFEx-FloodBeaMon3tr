@@ -1,0 +1,432 @@
+C51 COMPILER V9.60.7.0   OUTPUTCHANNEL                                                     10/31/2026 08:53:28 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE OUTPUTCHANNEL
+OBJECT MODULE PLACED IN .\Objects\OutputChannel.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE Logic\OutputChannel.c OBJECTADVANCED OPTIMIZE(9,SPEED) REGFILE(.\Objects
+                    -\XRFan-Ultra.ORC) BROWSE MODDP2 INCDIR(.\include\System;.\StdDriver\inc;.\Hardware;.\include\Hardware;.\include\Middlewa
+                    -re;.\include\Logic) DEFINE(EnableStdGPIO,EnableHyper1S) DEBUG PRINT(.\Listings\OutputChannel.lst) TABS(2) OBJECT(.\Objec
+                    -ts\OutputChannel.obj)
+
+line level    source
+
+   1          /****************************************************************************/
+   2          /** \file OutputChannel.c
+   3          /** \Author redstoner_35
+   4          /** \Project Xtern Ripper Hyper Fan Ultra Edition
+   5          /** \Description Õâ¸öÎÄ¼þÊÇÉÏ²ãÓ¦ÓÃ²ãÂß¼­£¬¸ºÔð¸ù¾ÝÏµÍ³µÄµ÷ËÙ²ÎÊý¿ØÖÆ·çÉÈPWMºÍ
+   6                           DCDC£¬Êä³öÖ¸¶¨µçÑ¹ºÍµ÷ËÙÐÅºÅµ½·çÉÈ¿ØÖÆ·çÉÈËÙ¶È¡£²¢ÇÒÍê³É°åÔØ
+   7                           ÅäÖÃµç×èµÄÊ¶±ð²¢ÆôÓÃ¶ÔÓ¦µÄµ÷ËÙÄ£Ê½¡£
+   8          **  History:
+   9                  2026Äê9ÔÂ11ÈÕ Initial Release
+  10          **  
+  11          *****************************************************************************/
+  12          /****************************************************************************/
+  13          /*  include files
+  14          *****************************************************************************/
+  15          #include "cms8s6990.h"
+  16          #include "PinDefs.h"
+  17          #include "PWMCfg.h"
+  18          #include "delay.h"
+  19          #include "GPIO.h"
+  20          #include "ADCCfg.h"
+  21          #include "OutputChannel.h"
+  22          #include "ModeSel.h"
+  23          #include "Tempcontrol.h"
+  24          
+  25          
+  26          /****************************************************************************/
+  27          /*  Local pre-processor symbols/macros('#define') For Parameter definition
+  28          ****************************************************************************/
+  29          
+  30          /*************************************************
+  31          Ê¹ÓÃ·çÉÈÄÚÖÃÈíÆð¶¯£¨²¿·Ö±©Á¦·çÉÈÄÚ²¿ÈíÆð¶¯»úÖÆ¹ýÓÚ±©Á¦
+  32          »òÕß¸É´àÃ»ÓÐÈíÆð¶¯»úÖÆ£¬Æô¶¯ÀËÓ¿µçÁ÷¹ý´óµ¼ÖÂÇý¶¯±£»¤£¬
+  33          ·çÉÈ·´¸´Í£×ª´òàÃÎÞ·¨Æô¶¯µÄ»°¿ÉÒÔ³¢ÊÔ×¢ÊÍ´Ëºê¶¨Òå¡£
+  34          Èç¹û·¢ÏÖ·çÉÈÔÚÃ¿´Î¿ª»ú¶¼ÒªÑÓ³ÙÊ®¼¸Ãë²ÅÆô¶¯£¬ËµÃ÷·çÉÈ
+  35          ÄÚÖÃÈíÆð¶¯ºÍ¹Ì¼þÈíÆð¶¯³åÍ»£¬´ËÊ±ÇëÈ¡Ïû×¢ÊÍ´Ëºê¶¨Òå¸Ä
+  36          ÎªÊ¹ÓÃ·çÉÈÄÚÖÃÈíÆð¶¯£©
+  37          *************************************************/
+  38          #define UsingFanIntSoftStart    //
+  39          
+  40          /*************************************************
+  41          ·çÉÈ×î´óÕ¼¿Õ±ÈÏÞÖÆ£¨Èç¹ûÄãÓÃµÄ·çÉÈ¾¢¶ùÌ«´ó£¬Çý¶¯¿¸²»
+  42          ´¥·¢×¡¹ýÈÈ±£»¤¿ÉÒÔµ÷Ð¡Õâ¸öÈÃ·çÉÈ½µËÙ¡£100±íÊ¾È«ËÙÊä³ö
+  43          100%£¬95±íÊ¾PWM×î´ó95%£¬¸ÃÑ¡Ïî½öPWMÄ£Ê½ÉúÐ§£©
+  44          *************************************************/
+  45          #define FanPWMMaxRatio 95.00      
+  46          
+  47          /*************************************************
+  48          ·çÉÈ×î´óµçÑ¹ÏÞÖÆ£¨Èç¹ûÄãÓÃµÄ·çÉÈ¾¢¶ùÌ«´ó£¬Çý¶¯¿¸²»
+  49          ´¥·¢×¡¹ýÈÈ±£»¤¿ÉÒÔµ÷Ð¡Õâ¸öÈÃ·çÉÈ½µËÙ¡£12V±íÊ¾·çÉÈµçÑ¹
+  50          12V£¬³¬¹ý11.98ºó¸ÃÑ¡Ïî»á±»ºöÂÔ¡£¸ÃÑ¡Ïî½öµçÑ¹µ÷ËÙÄ£Ê½
+  51          ÉúÐ§£©
+  52          *************************************************/
+C51 COMPILER V9.60.7.0   OUTPUTCHANNEL                                                     10/31/2026 08:53:28 PAGE 2   
+
+  53          #define MaxFanVoltageClamp 12.0
+  54          
+  55          /*************************************************
+  56          µ¥Ë«ï®Í¨ÓÃÄ£Ê½ÏÂ£¬°²×°µ¥ï®Ê±·çÉÈµÄ×î´ó³öÁ¦£¨ÒòÎªµ¥Ë«
+  57          ï®Í¨ÓÃÄ£Ê½ÏÂÇý¶¯µÄµ¥ï®Êä³öÐÔÄÜ»áÊÜÏÞ£¬´ËÊ±ÄúÐèÒªÉèÖÃ
+  58          ¸Ã²ÎÊýµ÷Õû·çÉÈµÄ×î´ó¹¦ÂÊ²»´óÓÚ30W¡£¸Ã²ÎÊýÉèÖÃµ¥ï®Ä£Ê½
+  59          ÏÂ×î´óPWM²ÎÊý£¬0.60±íÊ¾60%¡£Èç¹ûÊÇÊ¹ÄÜÁËµ¥ï®±©Á¦Ä£Ê½
+  60          µÄ¹Ì¼þ£¬Ôò¸ÃÑ¡Ïî±»ºöÂÔÎÞÓÃ¡££©
+  61          *************************************************/
+  62          #define DualLit1SFanLimitRatio 0.60
+  63          
+  64          /****************************************************************************/
+  65          /*  Local type definitions('typedef')
+  66          *****************************************************************************/
+  67          typedef enum
+  68            {
+  69            OCFSM_Idle, //·çÉÈ´¦ÓÚ¹Ø±Õ×´Ì¬
+  70            OCFSM_Voltage_PreBIAS, //ÏµÍ³¹¤×÷ÔÚµçÑ¹Ä£Ê½£¬Ô¤ÏÈËÍPWMDAC»ù×¼
+  71            OCFSM_Start_DCDC, //µÈ´ýDCDCÆô¶¯
+  72            OCFSM_PWMRampingUp, //¿ªÆô·çÉÈµçÔ´£¬·çÉÈÆð×ª
+  73            OCFSM_RaiseVOUT, //Êä³öÍ¨µÀ½øÐÐµçÑ¹Ì§Éý´¦Àí
+  74            OCFSM_NormalOperation, //·çÉÈÒÑ¾­Íê³ÉÆô¶¯£¬Õý³£²Ù×÷
+  75            OCFSM_ShutOFF //Êä³ö×´Ì¬»ú¹Ø±Õ·çÉÈµÄÁ÷³Ì
+  76            }OCFSMStateDef;
+  77          
+  78          
+  79          
+  80          /****************************************************************************/
+  81          /*  Local variable and SFR definitions('static')
+  82          ****************************************************************************/
+  83          
+  84          sbit PINStrap=PinStrapIOP^PinStrapIOx;  //ÅäÖÃµç×è
+  85          sbit DCDCEN=DCDCENIOP^DCDCENIOx;        
+  86          sbit FANPWREN=FANPWRENIOP^FANPWRENIOx;  //DCDCÊ¹ÄÜºÍ·çÉÈµçÔ´PMOSÊ¹ÄÜ
+  87          
+  88          static OCFSMStateDef OCState; //Êä³öÍ¨µÀ×´Ì¬
+  89          static xdata unsigned char OCFSMWait=0; //ÄÚ²¿µÈ´ýº¯Êý
+  90          static xdata float RaiseVoltProc; //µçÑ¹ÉÏÉýµÄº¯Êý
+  91          
+  92          /****************************************************************************/
+  93          /*  Global variable definitions(declared in header file with 'extern')
+  94          ****************************************************************************/
+  95          xdata MinMaxDutyVOutDef VMinMaxCfg;  //´æ´¢ÏµÍ³×îÐ¡µçÑ¹µçÁ÷ºÍÎÞ¼«µ÷ËÙÉÏÏÞÅäÖÃ
+  96          xdata float TargetVoltage;          //Ä¿±ê·çÉÈµçÑ¹(½öµçÑ¹Ä£Ê½ÉúÐ§)
+  97          xdata float TargetfanSpeed;         //Ä¿±ê·çÉÈËÙ¶È
+  98          bit IsUpdateFanSpeed;               //¸üÐÂ·çÉÈËÙ¶È
+  99          bit IsEnablePWMFan;                 //±êÖ¾Î»£¬ÊÇ·ñ¿ªÆôPWM·çÉÈÄ£Ê½
+ 100          
+ 101          /****************************************************************************/
+ 102          /* Local Function implementation - 'static'
+ 103          ****************************************************************************/ 
+ 104          static int SetFanPWMProcess(void)
+ 105            {
+ 106   1        float buf,DutyLimit;
+ 107   1        //È¡ÊýÖµ
+ 108   1        if(!IsEnablePWMFan)buf=100; //µçÑ¹Ä£Ê½PWMÈ«¸ß
+ 109   1        else if(TargetfanSpeed>100)buf=100;
+ 110   1        else buf=TargetfanSpeed;            //ÏÞÖÆÊýÖµ
+ 111   1        #ifndef EnableHyper1S 
+                  
+                if(!IsEnable2SMode)buf*=DualLit1SFanLimitRatio;
+                  
+C51 COMPILER V9.60.7.0   OUTPUTCHANNEL                                                     10/31/2026 08:53:28 PAGE 3   
+
+                #endif  
+ 116   1        //ÔØÈëÎÂ¿Ø²ÎÊý  
+ 117   1        DutyLimit=QueryDutyLimit();
+ 118   1        if(DutyLimit>100)DutyLimit=100; 
+ 119   1        if(DutyLimit<0)DutyLimit=0;     //Õ¼¿Õ±È²ÎÊýÏÞ·ù
+ 120   1        buf*=DutyLimit/(float)100; 
+ 121   1        if(buf>FanPWMMaxRatio)buf=(float)FanPWMMaxRatio;            //Ó¦ÓÃ½µ¶îÏµÊýÏÞÖÆ·çÉÈ×î¸ßËÙ¶È
+ 122   1        if(buf<VMinMaxCfg.SysMinSpeed)buf=VMinMaxCfg.SysMinSpeed;   //¶ÔËÙ¶È²ÎÊý½øÐÐ°Ù·Ö±ÈÏÞ·ù        
+ 123   1          
+ 124   1          
+ 125   1          
+ 126   1        //³ËÒÔPWM StepÈ»ºó³ýÒÔ100µÃµ½PWMÈ¡Öµ
+ 127   1        buf*=FanPWMStepConstant();
+ 128   1        buf/=(float)100;
+ 129   1        //ÏÞÖÆ²ÎÊýÈ¡ÖµÎª0-FanPWMStepConstant
+ 130   1        if(buf<(float)FanPWMStepConstant())return (int)buf;
+ 131   1        return FanPWMStepConstant;
+ 132   1        }
+ 133          
+ 134          //¸ù¾Ý´«ÈëµçÑ¹¼ÆËãCV DAC PWMÕ¼¿Õ±ÈµÄº¯Êý
+ 135          static void SetCVDACProcess(float VIN)
+ 136            { 
+ 137   1        float buf;
+ 138   1      
+ 139   1        //ÊäÈë²ÎÊýÏÞ·ù
+ 140   1        if(VIN>MaxFanVoltageClamp)buf=MaxFanVoltageClamp;
+ 141   1        else if(VIN>11.98)buf=11.98;
+ 142   1        else if(VIN<5.1)buf=5.1;
+ 143   1        else buf=VIN;
+ 144   1          
+ 145   1        //ÔØÈëÎÂ¿Ø²ÎÊý½øÐÐµçÑ¹ÏÞ·ù
+ 146   1        if(buf<QueryVoltageLimit())
+ 147   1          {
+ 148   2          buf=QueryVoltageLimit();
+ 149   2          if(buf<VMinMaxCfg.SysMinVolt)buf=VMinMaxCfg.SysMinVolt;
+ 150   2          }     
+ 151   1        //¿ªÊ¼µ÷ÓÃÄ§·¨¹«Ê½¼ÆËã
+ 152   1        buf=0.4314*(buf-(float)1);
+ 153   1        buf=4.7288-buf; //¼ÆËãµÃ³öÔË·ÅÊä³öµÄÄ¿±êµçÑ¹
+ 154   1        buf=buf/Data.MCUVDD; 
+ 155   1        buf*=100; //ºÍµ±Ç°MCUµÄVINµçÑ¹Ïà³ýµÃµ½PWMDACµÄÕ¼¿Õ±È
+ 156   1        if(buf<0)buf=0;
+ 157   1        if(buf>100)buf=100; //Õ¼¿Õ±ÈÊýÖµÖ»ÄÜÊÇ0ºÍ100
+ 158   1        //¼ÆËãÍê±Ï£¬Ð´CVDACµÄPWM
+ 159   1        CVDACTargetDuty=buf;  
+ 160   1        }
+ 161          
+ 162          /****************************************************************************/
+ 163          /* Global Function implementation - Initialization
+ 164          ****************************************************************************/   
+ 165          //Êä³ö×´Ì¬»ú¸´Î»
+ 166          void OutputChannel_DeInit(void)
+ 167            {
+ 168   1        DCDCEN=0; 
+ 169   1        FANPWREN=0;
+ 170   1        PINStrap=0;
+ 171   1        //¸´Î»±äÁ¿
+ 172   1        IsUpdateFanSpeed=0;
+ 173   1        RaiseVoltProc=0;
+ 174   1        TargetVoltage=0;
+ 175   1        TargetfanSpeed=0;
+ 176   1        OCState=OCFSM_Idle;
+C51 COMPILER V9.60.7.0   OUTPUTCHANNEL                                                     10/31/2026 08:53:28 PAGE 4   
+
+ 177   1        } 
+ 178            
+ 179          //³õÊ¼»¯Êä³öÍ¨µÀ×´Ì¬»ú
+ 180          void OutputChannel_Init(void)
+ 181            {
+ 182   1        GPIOCfgDef LEDInitCfg;
+ 183   1        //ÉèÖÃ½á¹¹Ìå
+ 184   1        LEDInitCfg.Mode=GPIO_Out_PP;
+ 185   1        LEDInitCfg.Slew=GPIO_Slow_Slew;   
+ 186   1        LEDInitCfg.DRVCurrent=GPIO_High_Current; //ÅäÖÃÎªµÍÐ±ÂÊ´óµçÁ÷µÄÍÆÍìÊä³ö
+ 187   1        //³õÊ¼»¯bit   
+ 188   1        DCDCEN=0; 
+ 189   1        FANPWREN=0;
+ 190   1        //³õÊ¼»¯DCDC-ENºÍ·çÉÈµçÔ´Ê¹ÄÜIOÎªÍÆÍìÊä³ö
+ 191   1        GPIO_ConfigGPIOMode(DCDCENIOG,GPIOMask(DCDCENIOx),&LEDInitCfg); 
+ 192   1        GPIO_ConfigGPIOMode(FANPWRENIOG,GPIOMask(FANPWRENIOx),&LEDInitCfg);     
+ 193   1        //¿ªÊ¼×¼±¸¶ÁÈ¡strap
+ 194   1        LEDInitCfg.Mode=GPIO_IPU;
+ 195   1        GPIO_ConfigGPIOMode(PinStrapIOG,GPIOMask(PinStrapIOx),&LEDInitCfg);  //ÅäÖÃÎªÊäÈëÉÏÀ­
+ 196   1        delay_ms(40);
+ 197   1      
+ 198   1        //StrapÒÑ¾­ÎÈ¶¨£¬¿ÉÒÔ¶ÁÊýÁË
+ 199   1        if(PINStrap)IsEnablePWMFan=0;   //R17=DNP ·çÉÈÅäÖÃÎªµçÑ¹µ÷ËÙÄ£Ê½
+ 200   1        else IsEnablePWMFan=1;          //R17=0R ·çÉÈÅäÖÃÎªËÄÏßÄ£Ê½   
+ 201   1        //¶ÁÈ¡Íê±Ï£¬ÁîStrapÊä³ö=0   
+ 202   1        LEDInitCfg.Mode=GPIO_Out_PP;
+ 203   1        GPIO_ConfigGPIOMode(PinStrapIOG,GPIOMask(PinStrapIOx),&LEDInitCfg);  //ÅäÖÃÎªÍÆÍìÊä³ö
+ 204   1        PINStrap=0;
+ 205   1        //¸´Î»±äÁ¿
+ 206   1        IsUpdateFanSpeed=0;
+ 207   1        RaiseVoltProc=0;
+ 208   1        TargetVoltage=0;
+ 209   1        TargetfanSpeed=0;
+ 210   1        OCState=OCFSM_Idle;
+ 211   1        }
+ 212          /****************************************************************************/
+ 213          /* Global Function implementation - Output Channel Logic and query
+ 214          ****************************************************************************/   
+ 215            
+ 216          //»ñÈ¡·çÉÈÊä³öÊÇ·ñÒÑ¾­¿ªÆô
+ 217          bit GetIfFanOutputEnabled(void)
+ 218            {
+ 219   1        switch(OCState)
+ 220   1          {
+ 221   2          case OCFSM_RaiseVOUT:
+ 222   2          case OCFSM_PWMRampingUp: 
+ 223   2          case OCFSM_NormalOperation:return 1;
+ 224   2          }
+ 225   1        //ÆäÓàÇé¿ö·µ»Ø0
+ 226   1        return 0;
+ 227   1        } 
+ 228            
+ 229          //Êä³öÍ¨µÀ×´Ì¬»úÔËËã
+ 230          void OutputChannel_Calc(void)
+ 231            {
+ 232   1      
+ 233   1        //×´Ì¬»ú´¦Àí
+ 234   1        switch(OCState)
+ 235   1          {
+ 236   2          //·çÉÈ´¦ÓÚ¹Ø±Õ×´Ì¬
+ 237   2          case OCFSM_Idle: 
+ 238   2             //Êä³öÍ¨µÀÎ´Æô¶¯£¬Í£Ö¹ÔËÐÐ
+C51 COMPILER V9.60.7.0   OUTPUTCHANNEL                                                     10/31/2026 08:53:28 PAGE 5   
+
+ 239   2             if(TargetVoltage==0&&!TargetfanSpeed)break;
+ 240   2             CVDACTargetDuty=0;
+ 241   2             OCFSMWait=0; //²»ÐèÒªµÈ´ý
+ 242   2             FanPWMDuty=VMinMaxCfg.SysStartUpDuty;
+ 243   2             IsNeedToUploadPWM=1; //Ä¬ÈÏ·çÉÈ×ÔÉíPWMÊä³ö1
+ 244   2             OCState=IsEnablePWMFan?OCFSM_Start_DCDC:OCFSM_Voltage_PreBIAS;
+ 245   2             break;
+ 246   2          
+ 247   2          //ÏµÍ³¹¤×÷ÔÚµçÑ¹Ä£Ê½£¬Ô¤ÏÈËÍPWMDAC»ù×¼
+ 248   2          case OCFSM_Voltage_PreBIAS: 
+ 249   2             if(IsNeedToUploadPWM)break; //Õ¼¿Õ±ÈÓ¦ÓÃÖÐ£¬ÍË³ö
+ 250   2             RaiseVoltProc=VMinMaxCfg.SysMinVolt;
+ 251   2             SetCVDACProcess(VMinMaxCfg.SysMinVolt); //ËÍµÍµçÑ¹ÈÃ·çÉÈÏÈÆô¶¯
+ 252   2             IsNeedToUploadPWM=1;
+ 253   2             OCFSMWait=0xFF; //µÈ´ý255¸öPWMÖÜÆÚºóÔÙÆô¶¯DCDC
+ 254   2             OCState=OCFSM_Start_DCDC;
+ 255   2             break;
+ 256   2          case OCFSM_Start_DCDC: //µÈ´ýDCDCÆô¶¯
+ 257   2             if(IsNeedToUploadPWM)break;
+ 258   2             //µÈ´ý¼ÆÊ±½áÊø£¬½áÊøºóÆô¶¯DCDC
+ 259   2             if(OCFSMWait)OCFSMWait--;
+ 260   2             else
+ 261   2               {
+ 262   3               FANPWREN=1;
+ 263   3               delay_ms(5);
+ 264   3               DCDCEN=1;
+ 265   3               if(IsEnablePWMFan)OCState=OCFSM_PWMRampingUp;
+ 266   3               else OCState=OCFSM_RaiseVOUT;
+ 267   3               }
+ 268   2             break;
+ 269   2          //·çÉÈÒÑ¾­Í¨µç£¬¿ªÊ¼Öð²½Ì§¸ßµçÑ¹ÌáÉý×ªËÙ±ÜÃâDCDC¹ýÔØ(µçÑ¹Ä£Ê½)
+ 270   2          case OCFSM_RaiseVOUT:   
+ 271   2            if(TargetVoltage==0||!TargetfanSpeed)OCState=OCFSM_ShutOFF; //Êä³öµçÑ¹ÉèÖÃÎª0»òÕß·çÉÈËÙ¶È=0£¬¹Ø±Õ·çÉ
+             -È      
+ 272   2            if(IsNeedToUploadPWM)break;
+ 273   2            //µçÑ¹Ì§µ½¶¥ÁË
+ 274   2            if(RaiseVoltProc>=TargetVoltage)
+ 275   2              {
+ 276   3              SetCVDACProcess(TargetVoltage);
+ 277   3              OCState=OCFSM_NormalOperation;
+ 278   3              IsNeedToUploadPWM=1;
+ 279   3              }
+ 280   2            else if(OCFSMWait)OCFSMWait--;
+ 281   2            else
+ 282   2              {
+ 283   3              RaiseVoltProc+=0.1;
+ 284   3              SetCVDACProcess(RaiseVoltProc); //µçÑ¹Ôö¼Ó0.01V£¬Ó¦ÓÃµçÑ¹½á¹û
+ 285   3              OCFSMWait=5;
+ 286   3              IsNeedToUploadPWM=1;
+ 287   3              }
+ 288   2            break;
+ 289   2          //·çÉÈÒÑ¾­Í¨µç£¬¿ªÊ¼Öð²½Ì§ÉýPWMÕ¼¿Õ±ÈÈÃ·çÉÈÊÜ¿Ø¼ÓËÙ(PWMÄ£Ê½)
+ 290   2          case OCFSM_PWMRampingUp: 
+ 291   2            if(TargetVoltage==0||!TargetfanSpeed)OCState=OCFSM_ShutOFF; //Êä³öµçÑ¹ÉèÖÃÎª0»òÕß·çÉÈËÙ¶È=0£¬¹Ø±Õ·çÉÈ   
+ 292   2            #ifndef UsingFanIntSoftStart
+                    if(IsNeedToUploadPWM)break;     
+                    //PWMÒÑ¾­¼ÓÂúÁË
+                    if(FanPWMDuty>=SetFanPWMProcess())
+                      {
+                      FanPWMDuty=SetFanPWMProcess();
+                      OCState=OCFSM_NormalOperation;
+                      IsNeedToUploadPWM=1;
+C51 COMPILER V9.60.7.0   OUTPUTCHANNEL                                                     10/31/2026 08:53:28 PAGE 6   
+
+                      }
+                    //Ê±¼ä»¹Ã»µ½£¬µÈ´ý
+                    else if(OCFSMWait)OCFSMWait--;
+                    else 
+                      {
+                      //¿ªÊ¼Öð²½ÌáÉý·çÉÈÕ¼¿Õ±È½øÐÐ¼ÓËÙ´¦Àí
+                      FanPWMDuty++;
+                      OCFSMWait=2;
+                      if(FanPWMDuty>FanPWMStepConstant)FanPWMDuty=FanPWMStepConstant; //ÊýÖµÏÞ·ù
+                      IsNeedToUploadPWM=1;
+                      }
+                    #else
+ 312   2            //Ê¹ÓÃ·çÉÈÄÚÖÃÈíÆð£¬Ö±½ÓÒ»²½µ½Î»¼Óµ½Ä¿±êÖµ£¬È»ºó¿ªÊ¼ÔËÐÐ
+ 313   2            FanPWMDuty=SetFanPWMProcess();
+ 314   2            OCState=OCFSM_NormalOperation;
+ 315   2            IsNeedToUploadPWM=1;  
+ 316   2            #endif
+ 317   2            break;
+ 318   2          //·çÉÈÆô¶¯Íê±Ï£¬½øÈëÕý³£Êä³ö
+ 319   2          case OCFSM_NormalOperation:
+ 320   2            if(TargetVoltage==0||!TargetfanSpeed)OCState=OCFSM_ShutOFF; //Êä³öµçÑ¹ÉèÖÃÎª0»òÕß·çÉÈËÙ¶È=0£¬¹Ø±Õ·çÉÈ   
+ 321   2            //´¥·¢·çÉÈËÙ¶È¸üÐÂ
+ 322   2            if(!IsUpdateFanSpeed||IsNeedToUploadPWM)break;
+ 323   2            //·Ç¼«ËÙÄ£Ê½£¬Ö±½ÓÓ¦ÓÃÕ¼¿Õ±È
+ 324   2            if(CurrentMode->ModeIdx!=Mode_Turbo)
+ 325   2              {
+ 326   3              FanPWMDuty=SetFanPWMProcess();
+ 327   3              if(!IsEnablePWMFan)SetCVDACProcess(TargetVoltage);
+ 328   3              else CVDACTargetDuty=0;
+ 329   3              RaiseVoltProc=TargetVoltage; 
+ 330   3              IsNeedToUploadPWM=1;
+ 331   3              }
+ 332   2            //¼«ËÙÄ£Ê½£¬»ºÂýÔö¼ÓÕ¼¿Õ±È
+ 333   2            else
+ 334   2              {
+ 335   3              //¼ÆÊ±Æ÷ÈÔÔÚ¼ÆÊ±£¬µÈ´ý
+ 336   3              if(OCFSMWait)
+ 337   3                {
+ 338   4                OCFSMWait--;
+ 339   4                break;
+ 340   4                }
+ 341   3              else if(!IsEnablePWMFan)
+ 342   3                {
+ 343   4                RaiseVoltProc+=0.1;     
+ 344   4                if(RaiseVoltProc>TargetVoltage)RaiseVoltProc=TargetVoltage;  //½øÐÐµçÑ¹Ç¯Î»
+ 345   4                SetCVDACProcess(RaiseVoltProc); //µçÑ¹Ôö¼Ó0.01V£¬Ó¦ÓÃµçÑ¹½á¹û
+ 346   4                OCFSMWait=5;
+ 347   4                IsNeedToUploadPWM=1;
+ 348   4                if(RaiseVoltProc<TargetVoltage)break;
+ 349   4                }
+ 350   3              else
+ 351   3                {
+ 352   4                //Ê¹ÓÃÏµÍ³×Ô´øÈíÆð¶¯
+ 353   4                #ifndef UsingFanIntSoftStart
+                        FanPWMDuty++;
+                        if(FanPWMDuty>SetFanPWMProcess())FanPWMDuty=SetFanPWMProcess(); //½øÐÐÕ¼¿Õ±ÈÇ¯Î»
+                        OCFSMWait=2;
+                        IsNeedToUploadPWM=1;
+                        if(FanPWMDuty<SetFanPWMProcess())break;
+                        #else
+ 360   4                //Ê¹ÓÃ·çÉÈ×Ô´øÈíÆð¹¦ÄÜ
+ 361   4                FanPWMDuty=SetFanPWMProcess();  
+C51 COMPILER V9.60.7.0   OUTPUTCHANNEL                                                     10/31/2026 08:53:28 PAGE 7   
+
+ 362   4                IsNeedToUploadPWM=1;
+ 363   4                #endif
+ 364   4                }
+ 365   3              }
+ 366   2            //·çÉÈËÙ¶È¸üÐÂÍê±Ï£¬Çå³ý±êÖ¾Î»
+ 367   2            IsUpdateFanSpeed=0;
+ 368   2            break;
+ 369   2               
+ 370   2          case OCFSM_ShutOFF: //Êä³ö×´Ì¬»ú¹Ø±Õ·çÉÈµÄÁ÷³Ì
+ 371   2            //¶Ï¿ªDCDC£¬ÑÓ³Ù10mSºó¹Ø±Õ·çÉÈµçÔ´
+ 372   2            DCDCEN=0;
+ 373   2            delay_ms(10);
+ 374   2            FANPWREN=0;
+ 375   2            //ÁîPWMÊä³ö=0
+ 376   2            FanPWMDuty=0;
+ 377   2            CVDACTargetDuty=0;
+ 378   2            IsNeedToUploadPWM=1;
+ 379   2            //¸´Î»µçÑ¹¼ÇÂ¼
+ 380   2            RaiseVoltProc=0;
+ 381   2            //·µ»Øµ½´ý»ú×´Ì¬
+ 382   2            IsUpdateFanSpeed=0; //¸´Î»±ê¼ÇÎ»
+ 383   2            OCState=OCFSM_Idle;
+ 384   2            break;
+ 385   2          }
+ 386   1        //È¡ÏûÄÚ²¿ºêµÄ¶¨Òå
+ 387   1        #undef FanStartPWMParam
+ 388   1        }
+ 389          /*****************************  End Of File  ******************************/
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1836    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     20    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      1      19
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      2    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

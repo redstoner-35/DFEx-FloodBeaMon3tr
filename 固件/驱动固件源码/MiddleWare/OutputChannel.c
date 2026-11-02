@@ -57,6 +57,7 @@ Pause功能。同时该文件负责完成DCDC输出模块的配置和自我测试。
 /*  eration with Register Operation('#define')
 ****************************************************************************/ 
 #define GracefulShutThres ((float)(1+OneLumenOut)/(float)10)			//自动计算系统输出放电和启动模块的阈值(单位V)
+#define PreChargeEndThres ((float)(PWMDACPreCharge-10)/(float)10)  //自动计算PWMDAC预充的结束电压
 #define CalcPWMDACDuty(x) ((((1167000UL-(3500UL*x))/105)*24UL)/50UL)  //使用整数方式计算PWMDAC预充电压（输入LSB=0.1V，别问怎么来的问就是魔法deepseek）
 
 //根据电流补偿值参数自动判断并应用补偿系数的自动定义
@@ -358,7 +359,7 @@ void OutputChannel_Calc(void)
 				OutputFSMState=OutCH_PreChargeFailed;
 				}		
 			//等待输出电压建立
-			if(Data.OutputVoltage<17.8)break;
+			if(Data.OutputVoltage<PreChargeEndThres)break;
 			if(CurrentMode->ModeIdx==Mode_1Lumen)OutputFSMState=OutCH_1LumenOpenRun;
 			else OutputFSMState=OutCH_ReleasePreCharge;   //电压建立后如果是正常运行挡位，则跳转到正常运行阶段，否则跳转到1LM挡位
 			break;

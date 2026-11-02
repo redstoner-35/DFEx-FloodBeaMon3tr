@@ -1,0 +1,319 @@
+C51 COMPILER V9.60.7.0   SYSCONFIG                                                         10/31/2026 08:53:28 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE SYSCONFIG
+OBJECT MODULE PLACED IN .\Objects\SysConfig.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE Logic\SysConfig.c OBJECTADVANCED OPTIMIZE(9,SPEED) REGFILE(.\Objects\XRF
+                    -an-Ultra.ORC) BROWSE MODDP2 INCDIR(.\include\System;.\StdDriver\inc;.\Hardware;.\include\Hardware;.\include\Middleware;.
+                    -\include\Logic) DEFINE(EnableStdGPIO,EnableHyper1S) DEBUG PRINT(.\Listings\SysConfig.lst) TABS(2) OBJECT(.\Objects\SysCo
+                    -nfig.obj)
+
+line level    source
+
+   1          /****************************************************************************/
+   2          /** \file SysConfig.c
+   3          /** \Author redstoner_35
+   4          /** \Project Xtern Ripper Hyper Fan Ultra Edition
+   5          /** \Description 这个文件是上层应用层逻辑，负责实现驱动设置的非易失性滚动存储和
+   6                           驱动设置的校验、读取、写入。
+   7          **  History:
+   8                  2026年9月11日 Initial Release
+   9          **  
+  10          *****************************************************************************/
+  11          /****************************************************************************/
+  12          /*  include files
+  13          *****************************************************************************/
+  14          #include "cms8s6990.h"
+  15          #include "ModeSel.h"
+  16          #include "SysConfig.h"
+  17          #include "Flash.h"
+  18          #include "SideKey.h"
+  19          #include "delay.h"
+  20          #include "LEDMgmt.h"
+  21          #include "SysReset.h"
+  22          #include "OutputChannel.h"
+  23          
+  24          /****************************************************************************/
+  25          /*  Local pre-processor symbols/macros('#define') For Parameter definition
+  26          ****************************************************************************/
+  27          #define DataFlashLen 0x3FF  //CMS8S6990单片机的数据区有1KByte，寻址范围是0-3FF
+  28          
+  29          
+  30          /****************************************************************************/
+  31          /*  Local pre-processor symbols/macros('#define') For Parameter parsing
+  32          
+  33          Note: 以下的宏请勿修改，否则会导致配置存储模块工作异常！
+  34          ****************************************************************************/
+  35          #define SysCfgGroupLen (DataFlashLen/sizeof(SysROMImg))-1 //可用的配置组合长度
+  36            
+  37          //位域压缩储存的mask定义
+  38          #define IsLocked_MSK 0x01  //是否锁定 bit1
+  39          #define IsEnableIdleLED_MSK 0x02 //是否开启有源夜光 bit2
+  40          #define IsEnable2SMode_MSK 0x04 //是否开启2串模式 bit3
+  41          #define IsEnableBattCfgLock_MSK 0x08 //是否开启电池串数配置锁 bit4
+  42          
+  43          /****************************************************************************/
+  44          /*  Local type definitions('typedef')
+  45          *****************************************************************************/
+  46          
+  47          //存储类型声明
+  48          typedef struct
+  49            {
+  50            float RampDuty;
+  51            float RampVout;
+  52            unsigned char BitfieldMem1;
+C51 COMPILER V9.60.7.0   SYSCONFIG                                                         10/31/2026 08:53:28 PAGE 2   
+
+  53            }SysStorDef;
+  54            
+  55          typedef union
+  56            {
+  57            SysStorDef Data;
+  58            char ByteBuf[sizeof(SysStorDef)];
+  59            }SysDataUnion;
+  60          
+  61          typedef struct
+  62            {
+  63            SysDataUnion SysConfig;
+  64            char CheckSum;
+  65            }SysROMImageDef;
+  66          
+  67          typedef union
+  68            {
+  69            SysROMImageDef Data;
+  70            char ByteBuf[sizeof(SysROMImageDef)];
+  71            }SysROMImg;
+  72            
+  73          /****************************************************************************/
+  74          /*  Local variable definitions('static')
+  75          ****************************************************************************/
+  76          static xdata unsigned int CurrentIdx;   //储存当前配置区段的index
+  77          static xdata u8 CurrentCRC;             //储存当前配置的CRC8
+  78          
+  79          /****************************************************************************/
+  80          /* Local Function implementation - Checksum value Calculation
+  81          ****************************************************************************/   
+  82            
+  83          //CRC-8计算 
+  84          static u8 PEC8Check(char *DIN,char Len)
+  85          {
+  86   1       unsigned char crcbuf=0xFF;
+  87   1       unsigned char i;
+  88   1       do
+  89   1        {
+  90   2        //载入数据
+  91   2        crcbuf^=*DIN++;
+  92   2        //计算
+  93   2        i=8;
+  94   2        do
+  95   2         {
+  96   3         if(crcbuf&0x80)crcbuf=(crcbuf<<1)^0x07;//最高位为1，左移之后和多项式XOR
+  97   3         else crcbuf<<=1;//最高位为0，只移位不XOR
+  98   3         }
+  99   2        while(--i);
+ 100   2        }
+ 101   1       while(--Len);
+ 102   1       //输出结果
+ 103   1       return crcbuf;
+ 104   1      }
+ 105          
+ 106          /****************************************************************************/
+ 107          /* Local Function implementation - EEPROM operation
+ 108          ****************************************************************************/ 
+ 109          
+ 110          //从EEPROM内寻找最后的一组系统配置
+ 111          static int SearchSysConfig(SysROMImg *ROMData)
+ 112            {
+ 113   1        unsigned char i;
+ 114   1        int Len=0;
+C51 COMPILER V9.60.7.0   SYSCONFIG                                                         10/31/2026 08:53:28 PAGE 3   
+
+ 115   1        //解锁flash并开始读取
+ 116   1        SetFlashState(1);
+ 117   1        do
+ 118   1          {   
+ 119   2          for(i=0;i<sizeof(SysROMImageDef);i++)Flash_Operation(DataFlash_Read,i+(Len*sizeof(SysROMImg)),&ROMData->
+             -ByteBuf[i]); //从ROM内读取数据
+ 120   2          if(ROMData->Data.CheckSum!=PEC8Check(ROMData->Data.SysConfig.ByteBuf,sizeof(SysStorDef)))break; //找到了
+             -没有被写入CRC校验不过的地方，就是你了
+ 121   2          Len++;
+ 122   2          }
+ 123   1        while(Len<SysCfgGroupLen);
+ 124   1        //读取上一组正确的配置
+ 125   1        if(Len>0)Len--;
+ 126   1        for(i=0;i<sizeof(SysROMImageDef);i++)Flash_Operation(DataFlash_Read,i+(Len*sizeof(SysROMImg)),&ROMData->B
+             -yteBuf[i]);
+ 127   1        //读取结束，返回上一组有数据的index
+ 128   1        return Len;
+ 129   1        }
+ 130          //准备初始的系统设置
+ 131          static void PrepareFactoryDefaultCfg(void)
+ 132            {
+ 133   1        RampVoltage=VMinMaxCfg.SysMinVolt;
+ 134   1        RampDuty=(float)VMinMaxCfg.SysMinSpeed;
+ 135   1        IsSystemLocked=0;
+ 136   1        IsEnableIdleLED=1;
+ 137   1        
+ 138   1        #ifndef EnableHyper1S   
+                  
+                //关闭超级1S模式，允许电池配置锁解除
+                IsEnableBattCfgLock=0;
+                IsEnable2SMode=0;
+                  
+                #else
+ 145   1          
+ 146   1        //开启超级1S模式，此时强制上配置锁并且禁止切换到2S
+ 147   1        IsEnableBattCfgLock=1;
+ 148   1        IsEnable2SMode=0;
+ 149   1      
+ 150   1        #endif    
+ 151   1        } 
+ 152            
+ 153          //尝试检测用户进行重置操作  
+ 154          static void ResetSysConfigToDefault(void)
+ 155            {
+ 156   1        unsigned char delay;
+ 157   1        bit BattCfgLockState;
+ 158   1        //如果系统处于锁定状态，则不允许重置出厂设置
+ 159   1        if(IsSystemLocked)return;
+ 160   1        //准备初始的系统设置
+ 161   1        BattCfgLockState=IsEnableBattCfgLock;
+ 162   1        PrepareFactoryDefaultCfg();
+ 163   1        if(BattCfgLockState)IsEnableBattCfgLock=1; //进行配置锁的记忆确保锁定后除了重新刷固件没有解锁的办法
+ 164   1        //保存数据并显示状态
+ 165   1        SaveSysConfig(0); //写数据写成默认值
+ 166   1        SetFlashState(0); //锁定Flash
+ 167   1        //配置指示灯准备显示
+ 168   1        delay=100;
+ 169   1        LEDMode=LED_AmberBlinkFast; //LED模式配置为黄色快闪
+ 170   1        do
+ 171   1          {
+ 172   2          delay_ms(10);
+ 173   2          LEDControlHandler();
+C51 COMPILER V9.60.7.0   SYSCONFIG                                                         10/31/2026 08:53:28 PAGE 4   
+
+ 174   2          //松开按键后开始计时
+ 175   2          if(GetSideKeyRawGPIOState())delay--;
+ 176   2          }
+ 177   1        while(delay);
+ 178   1        //触发系统重启
+ 179   1        TriggerSoftwareReset();
+ 180   1        } 
+ 181            
+ 182          //显示系统数据存在错误
+ 183          static void ShowEPROMCorrupted(void)
+ 184            {
+ 185   1        unsigned char delay=0xFF;
+ 186   1        //读取操作完毕，锁定flash 
+ 187   1        SetFlashState(0);
+ 188   1        //配置LED模式
+ 189   1        LEDMode=LED_RedBlink; //LED模式配置为红色快闪
+ 190   1        while(--delay)
+ 191   1          {
+ 192   2          delay_ms(10);
+ 193   2          LEDControlHandler();
+ 194   2          }
+ 195   1        //时间到，令系统reboot
+ 196   1        TriggerSoftwareReset();
+ 197   1        }
+ 198            
+ 199          
+ 200          /****************************************************************************/
+ 201          /* Global Function implementation - exported for Config operation
+ 202          ****************************************************************************/     
+ 203          
+ 204          //读取驱动的系统配置
+ 205          void ReadSysConfig(void)
+ 206            {
+ 207   1        xdata SysROMImg ROMData;
+ 208   1        //读取数据
+ 209   1        CurrentIdx=SearchSysConfig(&ROMData);
+ 210   1        //进行读出数据的校验
+ 211   1        if(ROMData.Data.CheckSum==PEC8Check(ROMData.Data.SysConfig.ByteBuf,sizeof(SysStorDef)))
+ 212   1          {
+ 213   2          //校验成功，加载数据
+ 214   2          IsEnableBattCfgLock=ROMData.Data.SysConfig.Data.BitfieldMem1&IsEnableBattCfgLock_MSK?1:0;
+ 215   2          IsEnable2SMode=ROMData.Data.SysConfig.Data.BitfieldMem1&IsEnable2SMode_MSK?1:0;
+ 216   2          IsEnableIdleLED=ROMData.Data.SysConfig.Data.BitfieldMem1&IsEnableIdleLED_MSK?1:0;
+ 217   2          IsSystemLocked=ROMData.Data.SysConfig.Data.BitfieldMem1&IsLocked_MSK?1:0;
+ 218   2          RampDuty=ROMData.Data.SysConfig.Data.RampDuty;
+ 219   2          RampVoltage=ROMData.Data.SysConfig.Data.RampVout;
+ 220   2          //存储当前的index值
+ 221   2          CurrentCRC=ROMData.Data.CheckSum;
+ 222   2          CurrentIdx++; //当前位置有数据，需要让index+1移动到未写入的位置
+ 223   2          
+ 224   2          //用户按下按键，重置设置并重启
+ 225   2          if(!GetSideKeyRawGPIOState())ResetSysConfigToDefault();
+ 226   2          }
+ 227   1        //校验失败重建数据
+ 228   1        else 
+ 229   1          {
+ 230   2          PrepareFactoryDefaultCfg(); 
+ 231   2          IsSystemLocked=1;  //系统刷写固件后首次上电，使系统处于锁定状态
+ 232   2          SaveSysConfig(1);  //重建数据后立即保存参数
+ 233   2          ShowEPROMCorrupted(); //显示EEPROM损坏
+ 234   2          }
+ 235   1        //读取操作完毕，锁定flash 
+C51 COMPILER V9.60.7.0   SYSCONFIG                                                         10/31/2026 08:53:28 PAGE 5   
+
+ 236   1        SetFlashState(0);
+ 237   1        }
+ 238          
+ 239          //保存驱动的系统配置到Flash（可以选择是强制覆写还是跳过一样内容的保存以节约ROM写入次数）
+ 240          void SaveSysConfig(bit IsForceSave)
+ 241            {
+ 242   1        unsigned char i,BFBuf=0;
+ 243   1        xdata SysROMImg SavedData;
+ 244   1        //解锁flash（CRC校验模块需要读取Flash所以需要解锁）
+ 245   1        SetFlashState(1);
+ 246   1        //开始进行数据构建
+ 247   1        if(IsSystemLocked)BFBuf|=IsLocked_MSK;                     //是否锁定
+ 248   1        if(IsEnableIdleLED)BFBuf|=IsEnableIdleLED_MSK;             //是否开启有源夜光
+ 249   1        if(IsEnable2SMode)BFBuf|=IsEnable2SMode_MSK;               //是否开启2S模式
+ 250   1        if(IsEnableBattCfgLock)BFBuf|=IsEnableBattCfgLock_MSK;          //是否开启电池配置锁
+ 251   1          
+ 252   1        SavedData.Data.SysConfig.Data.BitfieldMem1=BFBuf;
+ 253   1        SavedData.Data.SysConfig.Data.RampDuty=RampDuty;
+ 254   1        SavedData.Data.SysConfig.Data.RampVout=RampVoltage;
+ 255   1        SavedData.Data.CheckSum=PEC8Check(SavedData.Data.SysConfig.ByteBuf,sizeof(SysStorDef)); //计算CRC
+ 256   1        //进行数据比对
+ 257   1        if(!IsForceSave&&SavedData.Data.CheckSum==CurrentCRC)
+ 258   1          {
+ 259   2          SetFlashState(0);//读取操作完毕，锁定flash  
+ 260   2          return; //跳过保存操作，数据相同  
+ 261   2          }
+ 262   1        //数据需要保存，开始检测是否需要擦除
+ 263   1        if(IsForceSave||CurrentIdx>=SysCfgGroupLen) 
+ 264   1          {
+ 265   2          //数据已经写满了，对扇区0和1进行完全擦除
+ 266   2          Flash_Operation(DataFlash_Erase,0x200,&i);  //扇区2=512-1023
+ 267   2          Flash_Operation(DataFlash_Erase,0,&i);      //扇区1=0-511
+ 268   2          //从第0个位置开始写入
+ 269   2          CurrentIdx=0;
+ 270   2          }
+ 271   1        //写入数据
+ 272   1        for(i=0;i<sizeof(SysROMImageDef);i++)Flash_Operation(DataFlash_Write,i+(CurrentIdx*sizeof(SysROMImg)),&Sa
+             -vedData.ByteBuf[i]);  
+ 273   1        CurrentIdx++; //本index已被写入，标记写到下个idx
+ 274   1        CurrentCRC=SavedData.Data.CheckSum; //保存本次index的CRC8
+ 275   1        SetFlashState(0);//写入操作完毕，锁定flash  
+ 276   1        } 
+ 277          /*****************************  End Of File  ******************************/
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    851    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      3      20
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----      12
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----       2
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

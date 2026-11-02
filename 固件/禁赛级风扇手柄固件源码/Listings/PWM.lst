@@ -1,0 +1,232 @@
+C51 COMPILER V9.60.7.0   PWM                                                               10/31/2026 08:53:27 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE PWM
+OBJECT MODULE PLACED IN .\Objects\PWM.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE Hardware\PWM.c OBJECTADVANCED OPTIMIZE(9,SPEED) REGFILE(.\Objects\XRFan-
+                    -Ultra.ORC) BROWSE MODDP2 INCDIR(.\include\System;.\StdDriver\inc;.\Hardware;.\include\Hardware;.\include\Middleware;.\in
+                    -clude\Logic) DEFINE(EnableStdGPIO,EnableHyper1S) DEBUG PRINT(.\Listings\PWM.lst) TABS(2) OBJECT(.\Objects\PWM.obj)
+
+line level    source
+
+   1          /****************************************************************************/
+   2          /** \file PWM.c
+   3          /** \Author redstoner_35
+   4          /** \Project Xtern Ripper Hyper Fan Ultra Edition
+   5          /** \Description 这个文件负责驱动系统的ePWM模块对外提供风扇调速信号和PWMDAC模拟
+   6                           输出完成恒压注入实现电压调速功能。
+   7          **
+   8          **  History:
+   9                  2026年9月11日 Initial Release
+  10          **  
+  11          *****************************************************************************/
+  12          /****************************************************************************/
+  13          /*  include files
+  14          *****************************************************************************/
+  15          #include "cms8s6990.h"
+  16          #include "PinDefs.h"
+  17          #include "GPIO.h"
+  18          #include "PWMCfg.h"
+  19          
+  20          /****************************************************************************/
+  21          /*  Local pre-processor symbols/macros('#define') For Parameter definition
+  22          ****************************************************************************/
+  23          #define SysFreq 48000000 //系统时钟频率(单位Hz)
+  24          #define PWMFreq 6000 //PWM频率(单位Hz)  
+  25          #define FanPWMFreq 20000  //风扇的PWM频率(单位Hz) 
+  26            
+  27          /****************************************************************************/
+  28          /*  Local pre-processor symbols/macros('#define') For Parameter parsing
+  29          
+  30          Note: 以下的宏请勿修改，否则会导致PWM模块工作异常！
+  31          ****************************************************************************/
+  32          #define PWMStepConstant (SysFreq/PWMFreq)-1         
+  33          #define FanPWMStepConstantVal (SysFreq/FanPWMFreq)-1  //PWM周期自动定义
+  34          
+  35          //PWM使能操作
+  36          #define PWM_Enable()  do{PWMFBKC=0x00;PWMCNTE=0x11;}while(0) //使能PWM输出 
+  37          
+  38          /****************************************************************************/
+  39          /*  Global variable definitions(declared in header file with 'extern')
+  40          ****************************************************************************/
+  41          xdata float CVDACTargetDuty;
+  42          xdata unsigned int FanPWMDuty; //风扇和恒压DAC的目标占空比
+  43          bit IsNeedToUploadPWM;         //是否需要更新PWM
+  44          
+  45          /****************************************************************************/
+  46          /*  Local variable and special Register definitions('static')
+  47          ****************************************************************************/
+  48          static bit IsPWMLoading; //PWM正在加载中
+  49          static bit IsNeedToEnableOutput; //是否需要启用输出
+  50          static bit IsNeedToEnableMOS; //是否需要使能MOS管
+  51          
+  52          sbit FanPWMPin=FanPWMIOP^FanPWMIOx;
+  53          sbit CVDACPin=CVDACIOP^CVDACIOx;
+C51 COMPILER V9.60.7.0   PWM                                                               10/31/2026 08:53:27 PAGE 2   
+
+  54          
+  55          /****************************************************************************/
+  56          /* Global Function implementation - Initialization
+  57          ****************************************************************************/ 
+  58          
+  59          //关闭PWM定时器
+  60          void PWM_DeInit(void)
+  61            {
+  62   1        //配置为普通GPIO
+  63   1        GPIO_SetMUXMode(FanPWMIOG,FanPWMIOx,GPIO_AF_GPIO);
+  64   1        GPIO_SetMUXMode(CVDACIOG,CVDACIOx,GPIO_AF_GPIO);
+  65   1        //关闭PWM模块
+  66   1        PWMCNTCLR=0x11; //复位PWM0和4的计数器
+  67   1        PWMOE=0x00;
+  68   1        PWMCNTE=0x00;   //关闭PWM计数器
+  69   1        PWM45PSC=0x00;
+  70   1        PWM01PSC=0x00;  //关闭PWM分频器时钟
+  71   1        }
+  72          
+  73          //上传PWM值
+  74          static void UploadPWMValue(void)  
+  75            {
+  76   1        PWMLOADEN=0x11; //加载通道0的PWM值
+  77   1        while(PWMLOADEN&0x11); //等待加载结束
+  78   1        }
+  79              
+  80          //PWM定时器初始化
+  81          void PWM_Init(void)
+  82            {
+  83   1        GPIOCfgDef PWMInitCfg;
+  84   1        //设置结构体
+  85   1        PWMInitCfg.Mode=GPIO_Out_PP;
+  86   1        PWMInitCfg.Slew=GPIO_Fast_Slew;   
+  87   1        PWMInitCfg.DRVCurrent=GPIO_High_Current; //推FanPWM，不需要很高的上升斜率
+  88   1        //配置GPIO
+  89   1        CVDACPin=0;
+  90   1        FanPWMPin=0;        //令FanPWM的输出在非PWM模式下始终输出0
+  91   1        GPIO_ConfigGPIOMode(CVDACIOG,GPIOMask(CVDACIOx),&PWMInitCfg); 
+  92   1        GPIO_ConfigGPIOMode(FanPWMIOG,GPIOMask(FanPWMIOx),&PWMInitCfg); 
+  93   1        //配置PWM发生器
+  94   1        PWMCON=0x00;    //PWM通道为六通道独立模式，向下计数，关闭非对称计数功能 
+  95   1        PWMOE=0x11;     //打开PWM输出通道0和4
+  96   1        PWM01PSC=0x01;  
+  97   1        PWM45PSC=0x01;  //打开预分频器和计数器时钟 
+  98   1        PWM0DIV=0xff;   
+  99   1        PWM4DIV=0xff;   //令Fpwmcnt=Fsys=48MHz(不分频)
+ 100   1        PWMPINV=0x00;   //所有通道均设置为正常输出模式
+ 101   1        PWMCNTM=0x11;   //通道0和4配置为自动加载模式
+ 102   1        PWMCNTCLR=0x11; //初始化PWM的时候复位通道0和4的定时器
+ 103   1        PWMDTE=0x00;    //关闭死区时间
+ 104   1        PWMMASKD=0x00; 
+ 105   1        PWMMASKE=0x11;  //PWM掩码功能启用，默认状态下禁止通道0和4输出
+ 106   1        //配置周期数据
+ 107   1        PWMP0H=(PWMStepConstant>>8)&0xFF;
+ 108   1        PWMP0L=PWMStepConstant&0xFF;  
+ 109   1        PWMP4H=(FanPWMStepConstantVal>>8)&0xFF;
+ 110   1        PWMP4L=FanPWMStepConstantVal&0xFF;
+ 111   1        //配置占空比数据
+ 112   1        PWMD0H=0;
+ 113   1        PWMD4H=0x0;
+ 114   1        PWMD0L=0; 
+ 115   1        PWMD4L=0x0;
+C51 COMPILER V9.60.7.0   PWM                                                               10/31/2026 08:53:27 PAGE 3   
+
+ 116   1        //初始化变量
+ 117   1        CVDACTargetDuty=0;
+ 118   1        FanPWMDuty=0;
+ 119   1        IsPWMLoading=0; 
+ 120   1        IsNeedToUploadPWM=0;
+ 121   1        //启用PWM
+ 122   1        PWM_Enable();
+ 123   1        UploadPWMValue(); 
+ 124   1        //PWM初始化完毕，将引脚启用为复用功能
+ 125   1        GPIO_SetMUXMode(FanPWMIOG,FanPWMIOx,GPIO_AF_PWMCH4);
+ 126   1        GPIO_SetMUXMode(CVDACIOG,CVDACIOx,GPIO_AF_PWMCH0);
+ 127   1        }
+ 128          
+ 129          /****************************************************************************/
+ 130          /* Global Function implementation - Special Operation
+ 131          ****************************************************************************/   
+ 132            
+ 133          //获取风扇PWM的数值常量
+ 134          int FanPWMStepConstant(void)
+ 135            {
+ 136   1        /*****************************************************
+ 137   1        特殊的函数，返回一个常量值供原来获取PWM常量的函数进行运算
+ 138   1        将硬件底层的参数宏和上层应用调用隔离。  
+ 139   1          
+ 140   1        这里不用担心函数返回的开销，因为编译器检测到这个函数只返
+ 141   1        回一个宏定义的常量，内部没有其他任何操作的话就不会生成函
+ 142   1        数进入和返回的入栈压栈和RETI代码。
+ 143   1        *****************************************************/
+ 144   1        return FanPWMStepConstantVal;
+ 145   1        }
+ 146            
+ 147          /****************************************************************************/
+ 148          /* Global Function implementation - Logic Handler
+ 149          ****************************************************************************/ 
+ 150          
+ 151          //根据PWM结构体内的配置进行输出
+ 152          void PWM_OutputCtrlHandler(void)  
+ 153            {
+ 154   1        int value;
+ 155   1        float buf;
+ 156   1        //当前系统未请求加载
+ 157   1        if(!IsNeedToUploadPWM)return; //不需要加载
+ 158   1        //当次加载已开始，进行结束监测
+ 159   1        else if(IsPWMLoading) 
+ 160   1          {
+ 161   2          if(PWMLOADEN&0x11)return;//加载寄存器复位为0，表示加载成功
+ 162   2          //加载结束
+ 163   2          if(IsNeedToEnableMOS)PWMMASKE&=0xEF;
+ 164   2          else PWMMASKE|=0x10;
+ 165   2          if(IsNeedToEnableOutput)PWMMASKE&=0xFE;
+ 166   2          else PWMMASKE|=0x01;   //更新PWMMASKE寄存器根据输出状态启用对应的通道
+ 167   2          IsNeedToUploadPWM=0;
+ 168   2          IsPWMLoading=0;  //正在加载状态为清除
+ 169   2          }
+ 170   1        //当次加载已被请求开始，进行加载处理
+ 171   1        else
+ 172   1          {
+ 173   2          //PWM占空比参数限制
+ 174   2          if(CVDACTargetDuty>100)CVDACTargetDuty=100;
+ 175   2          if(CVDACTargetDuty<0)CVDACTargetDuty=0;
+ 176   2          if(FanPWMDuty>FanPWMStepConstantVal)FanPWMDuty=FanPWMStepConstantVal;
+ 177   2          //根据PWM数值选择MASK寄存器是否启用
+C51 COMPILER V9.60.7.0   PWM                                                               10/31/2026 08:53:27 PAGE 4   
+
+ 178   2          IsNeedToEnableOutput=CVDACTargetDuty>0?1:0; //是否需要启用输出
+ 179   2          IsNeedToEnableMOS=FanPWMDuty?1:0;  //配置是否需要使能FET
+ 180   2          //配置寄存器装载CV DAC的PWM设置数值
+ 181   2          buf=CVDACTargetDuty*(float)PWMStepConstant;
+ 182   2          buf/=(float)100;
+ 183   2          value=(int)buf;
+ 184   2          PWMD0H=(value>>8)&0xFF;
+ 185   2          PWMD0L=value&0xFF;    
+ 186   2          //装载风扇的PWM数值
+ 187   2          value=FanPWMStepConstantVal-FanPWMDuty;  //因为风扇PWM电路的输出电平位移自带反相器所以需要输出反过来的占
+             -空比
+ 188   2          if(!value)IsNeedToEnableMOS=0; //PWM输出100%的时候直接让输出MOS关掉就行了
+ 189   2          PWMD4H=(value>>8)&0xFF;
+ 190   2          PWMD4L=value&0xFF;      
+ 191   2          //PWM寄存器数值已装入，应用数值   
+ 192   2          IsPWMLoading=1; //标记加载过程进行中
+ 193   2          PWMLOADEN|=0x11; //开始加载
+ 194   2          }
+ 195   1        }
+ 196          /*****************************  End Of File  ******************************/
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    606    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      6    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----       7
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      4    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

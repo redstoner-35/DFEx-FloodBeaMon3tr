@@ -1,0 +1,204 @@
+C51 COMPILER V9.60.7.0   SLEEP                                                             10/31/2026 08:53:29 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE SLEEP
+OBJECT MODULE PLACED IN .\Objects\Sleep.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE Logic\Sleep.c OBJECTADVANCED OPTIMIZE(9,SPEED) REGFILE(.\Objects\XRFan-U
+                    -ltra.ORC) BROWSE MODDP2 INCDIR(.\include\System;.\StdDriver\inc;.\Hardware;.\include\Hardware;.\include\Middleware;.\inc
+                    -lude\Logic) DEFINE(EnableStdGPIO,EnableHyper1S) DEBUG PRINT(.\Listings\Sleep.lst) TABS(2) OBJECT(.\Objects\Sleep.obj)
+
+line level    source
+
+   1          /****************************************************************************/
+   2          /** \file Sleep.c
+   3          /** \Author redstoner_35
+   4          /** \Project Xtern Ripper Hyper Fan Ultra Edition
+   5          /** \Description 这个文件是上层应用层逻辑，负责实现系统在长时间无操作后进入深度
+   6                           休眠节约电力消耗，以及实现定期唤醒采样电池电压实现指示LED欠压
+   7                           自杀的逻辑。
+   8          **  History:
+   9                  2026年9月11日 Initial Release
+  10          **  
+  11          *****************************************************************************/
+  12          /****************************************************************************/
+  13          /*  include files
+  14          *****************************************************************************/
+  15          #include "ModeSel.h"
+  16          #include "cms8s6990.h"
+  17          #include "OutputChannel.h"
+  18          #include "BattDisplay.h"
+  19          #include "SideKey.h"
+  20          #include "LEDMgmt.h"
+  21          #include "ADCCfg.h"
+  22          #include "PWMCfg.h"
+  23          #include "delay.h"
+  24          #include "LVDCtrl.h"
+  25          
+  26          
+  27          /****************************************************************************/
+  28          /*  Local pre-processor symbols/macros('#define') For Parameter definition
+  29          ****************************************************************************/
+  30          #define SleepTimeOut 5 //休眠状态延时 
+  31          
+  32          /****************************************************************************/
+  33          /*  Local variable definitions('static')
+  34          ****************************************************************************/ 
+  35          static xdata unsigned int SleepTimer;
+  36          
+  37          /****************************************************************************/
+  38          /*  function Prototype('extern')
+  39          ****************************************************************************/ 
+  40          void MaskUnusedIO(void);
+  41          
+  42          /****************************************************************************/
+  43          /* Local Function implementation - 'static'
+  44          ****************************************************************************/ 
+  45          
+  46          //禁止所有系统外设
+  47          static void DisableSysPeripheral(void)
+  48            {
+  49   1        MaskUnusedIO();    //关闭所有无用的IO
+  50   1        DisableSysHBTIM(); 
+  51   1        PWM_DeInit();
+  52   1        ADC_DeInit(); //关闭PWM和ADC
+  53   1        OutputChannel_DeInit(); //对输出通道进行复位
+C51 COMPILER V9.60.7.0   SLEEP                                                             10/31/2026 08:53:29 PAGE 2   
+
+  54   1        LED_DeInit(); //关闭LED控制器
+  55   1        }
+  56          
+  57          //启动所有系统外设
+  58          static void EnableSysPeripheral(void)
+  59            {
+  60   1        ADC_Init(); //初始化ADC
+  61   1        PWM_Init(); //初始化PWM发生器
+  62   1        LED_Init(); //初始化侧按LED
+  63   1        OutputChannel_Init(); //初始化输出通道
+  64   1        SystemTelemHandler(); //启动一次ADC，进行初始测量
+  65   1        DisplayVBattAtStart(0); //执行一遍电池初始化函数  
+  66   1        LVD_Disable(); //关闭LVD
+  67   1        }
+  68          
+  69          //检测系统是否允许进入睡眠的条件
+  70          static char QueryIsSystemNotAllowToSleep(void)
+  71            {
+  72   1        //系统在显示电池电压和版本号，不允许睡眠
+  73   1        if(IsVshowFSMInAction())return 1;
+  74   1        //系统开机了
+  75   1        if(CurrentMode->ModeIdx!=Mode_OFF)return 1;
+  76   1        //允许睡眠
+  77   1        return 0;
+  78   1        } 
+  79          
+  80          //实际的系统休眠处理流程
+  81          static void SleepProcHandler(void)
+  82            {
+  83   1        bit sleepsel;
+  84   1        unsigned char ADCSampleCounter;
+  85   1        //关闭外设并初始化欠压定时器
+  86   1        ADCSampleCounter=12;
+  87   1        DisableSysPeripheral();
+  88   1        //开始睡眠处理
+  89   1        do
+  90   1          {   
+  91   2          STOP();  //令STOP=1，使单片机进入睡眠
+  92   2          //唤醒之后需要跟6条NOP
+  93   2          _nop_();
+  94   2          _nop_();
+  95   2          _nop_();
+  96   2          _nop_();
+  97   2          _nop_();
+  98   2          _nop_();
+  99   2          //系统已唤醒，立即开始检测
+ 100   2          if(GetIfSideKeyTriggerInt()) 
+ 101   2            {
+ 102   3            //检测到系统并非由LVD唤醒，立即完成初始化判断按键状态
+ 103   3            StartSystemTimeBase(); //启动系统定时器提供系统定时和延时函数
+ 104   3            MarkAsKeyPressed(); //立即标记按键按下
+ 105   3            SideKey_SetIntOFF(); //关闭侧按中断
+ 106   3            do  
+ 107   3              {
+ 108   4              delay_ms(1);
+ 109   4              SideKey_LogicHandler(); //处理侧按事务
+ 110   4              //侧按按键的监测定时器处理(使用62.5mS心跳时钟,通过2分频)
+ 111   4              if(!SysHFBitFlag)continue; 
+ 112   4              SysHFBitFlag=0;
+ 113   4              sleepsel=~sleepsel;
+ 114   4              if(sleepsel)SideKey_TIM_Callback();
+ 115   4              }
+C51 COMPILER V9.60.7.0   SLEEP                                                             10/31/2026 08:53:29 PAGE 3   
+
+ 116   3            while(!IsKeyEventOccurred()); //等待按键唤醒    
+ 117   3            //系统已完成按键事件检测，初始化其余外设    
+ 118   3            EnableSysPeripheral();  
+ 119   3            EnableADCAsync();         //使能异步模式
+ 120   3            return;
+ 121   3            }
+ 122   2          //欠压自杀计时器计时中
+ 123   2          else if(ADCSampleCounter)ADCSampleCounter--;
+ 124   2          //系统由WUT唤醒，启动ADC，检测电池电压后立即睡眠
+ 125   2          else
+ 126   2            {
+ 127   3            //初始化ADC 
+ 128   3            ADCSampleCounter=11;    //欠压自杀不需要特别频繁的采样
+ 129   3            ADC_Init();             //初始化ADC
+ 130   3            SystemTelemHandler(); 
+ 131   3            CellVoltage=(int)(Data.BatteryVoltage*1000); //启动一次ADC，获取并更新电池电压
+ 132   3            if(CellVoltage<2900)
+ 133   3              {
+ 134   4              LVD_Disable(); //关闭LVD
+ 135   4              LED_Init(); //电池欠压，初始化侧按LED关闭上拉
+ 136   4              }
+ 137   3            //检测完毕，关闭ADC并补充极亮刷新次数
+ 138   3            ADC_DeInit(); 
+ 139   3            AddTurboRefreshCountWhenSleep();
+ 140   3            //令睡眠定时器=0，系统立即进入睡眠
+ 141   3            SleepTimer=0;
+ 142   3            }
+ 143   2          }
+ 144   1        while(!SleepTimer);
+ 145   1        } 
+ 146            
+ 147          /****************************************************************************/
+ 148          /* Global Function implementation - export to other file with 'extern'
+ 149          ****************************************************************************/   
+ 150            
+ 151          //加载定时器时间
+ 152          void LoadSleepTimer(void) 
+ 153            {
+ 154   1        //加载睡眠时间
+ 155   1        SleepTimer=8*SleepTimeOut;    
+ 156   1        } 
+ 157            
+ 158          //睡眠管理函数
+ 159          void SleepMgmt(void)
+ 160            {
+ 161   1        
+ 162   1        //非关机且仍然在显示电池电压的时候定时器复位禁止睡眠
+ 163   1        if(QueryIsSystemNotAllowToSleep())LoadSleepTimer();
+ 164   1        //允许睡眠开始倒计时
+ 165   1        if(SleepTimer>0)SleepTimer--;
+ 166   1        //立即进入睡眠阶段
+ 167   1        else SleepProcHandler();
+ 168   1        }
+ 169          /*****************************  End Of File  ******************************/
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    306    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      2    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----       1
+C51 COMPILER V9.60.7.0   SLEEP                                                             10/31/2026 08:53:29 PAGE 4   
+
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----       1
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

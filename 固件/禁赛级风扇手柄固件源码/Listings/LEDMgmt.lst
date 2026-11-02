@@ -1,0 +1,241 @@
+C51 COMPILER V9.60.7.0   LEDMGMT                                                           10/31/2026 08:53:28 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE LEDMGMT
+OBJECT MODULE PLACED IN .\Objects\LEDMgmt.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE Hardware\LEDMgmt.c OBJECTADVANCED OPTIMIZE(9,SPEED) REGFILE(.\Objects\XR
+                    -Fan-Ultra.ORC) BROWSE MODDP2 INCDIR(.\include\System;.\StdDriver\inc;.\Hardware;.\include\Hardware;.\include\Middleware;
+                    -.\include\Logic) DEFINE(EnableStdGPIO,EnableHyper1S) DEBUG PRINT(.\Listings\LEDMgmt.lst) TABS(2) OBJECT(.\Objects\LEDMgm
+                    -t.obj)
+
+line level    source
+
+   1          /****************************************************************************/
+   2          /** \file LEDMgmt.c
+   3          /** \Author redstoner_35
+   4          /** \Project Xtern Ripper Hyper Fan Ultra Edition
+   5          /** \Description 这个文件负责实现系统侧按指示的多模态驱动和断电睡眠的LED处理
+   6          **
+   7          **  History:
+   8                  2026年9月10日 Initial Release
+   9          **  
+  10          *****************************************************************************/
+  11          /****************************************************************************/
+  12          /*  include files
+  13          *****************************************************************************/
+  14          #include "delay.h"
+  15          #include "LEDMgmt.h"
+  16          #include "GPIO.h"
+  17          #include "PinDefs.h"
+  18          #include "cms8s6990.h"
+  19          #include "BattDisplay.h"
+  20          #include "LVDCtrl.h"
+  21          
+  22          /****************************************************************************/
+  23          /*  function Prototype('extern')
+  24          ****************************************************************************/ 
+  25          bit QueryIsSystemInBoostMode(void);
+  26          bit IsThermalStepdown(void);
+  27          
+  28          /****************************************************************************/
+  29          /*  Global variable definitions(declared in header file with 'extern')
+  30          ****************************************************************************/
+  31          volatile LEDStateDef LEDMode;  //LED控制模式
+  32          
+  33          /****************************************************************************/
+  34          /*  Local variable and special Register definitions('static')
+  35          ****************************************************************************/
+  36          static xdata char timer;
+  37          static xdata char BoostModeInfoTIM;  //降档提示和暴力模式提示计时器
+  38          
+  39          sbit RLED=RedLEDIOP^RedLEDIOx;
+  40          sbit GLED=GreenLEDIOP^GreenLEDIOx;   //LED GPIO声明
+  41          
+  42          /****************************************************************************/
+  43          /* Global Function implementation - Initialization
+  44          ****************************************************************************/ 
+  45          
+  46          //LED关闭函数
+  47          void LED_DeInit(void)
+  48            {
+  49   1        GPIOCfgDef LEDInitCfg;
+  50   1        extern bit IsEnableIdleLED;
+  51   1        //令所有LED熄灭
+  52   1        RLED=0;
+C51 COMPILER V9.60.7.0   LEDMGMT                                                           10/31/2026 08:53:28 PAGE 2   
+
+  53   1        GLED=0;
+  54   1        //复位LED管理器的相关变量
+  55   1        LEDMode=LED_OFF;
+  56   1        timer=0;
+  57   1        BoostModeInfoTIM=0;
+  58   1        //如果电池电压低于2.9V为了避免导致电池彻底饿死，禁止打开定位LED（当然的话
+             -还有就是用户主动关闭）
+  59   1        if(CellVoltage<2900||!IsEnableIdleLED)return;
+  60   1        //设置结构体
+  61   1        LEDInitCfg.Mode=GPIO_IPU;
+  62   1        LEDInitCfg.Slew=GPIO_Slow_Slew;   
+  63   1        LEDInitCfg.DRVCurrent=GPIO_High_Current; //配置为弱上拉令红色灯珠发出微光
+  64   1        //配置GPIO并启动LVD
+  65   1        LVD_Start();
+  66   1        GPIO_ConfigGPIOMode(GreenLEDIOG,GPIOMask(GreenLEDIOx),&LEDInitCfg);
+  67   1        }
+  68          
+  69          //LED配置函数
+  70          void LED_Init(void)
+  71            {
+  72   1        GPIOCfgDef LEDInitCfg;
+  73   1        //设置结构体
+  74   1        LEDInitCfg.Mode=GPIO_Out_PP;
+  75   1        LEDInitCfg.Slew=GPIO_Slow_Slew;   
+  76   1        LEDInitCfg.DRVCurrent=GPIO_High_Current; //配置为低斜率大电流的推挽输出
+  77   1        //初始化寄存器
+  78   1        RLED=0;
+  79   1        GLED=0;
+  80   1        //配置GPIO
+  81   1        GPIO_SetMUXMode(RedLEDIOG,RedLEDIOx,GPIO_AF_GPIO);
+  82   1        GPIO_SetMUXMode(GreenLEDIOG,GreenLEDIOx,GPIO_AF_GPIO);
+  83   1        GPIO_ConfigGPIOMode(RedLEDIOG,GPIOMask(RedLEDIOx),&LEDInitCfg); //红色LED(推挽输出)
+  84   1        GPIO_ConfigGPIOMode(GreenLEDIOG,GPIOMask(GreenLEDIOx),&LEDInitCfg); //绿色LED(推挽输出)
+  85   1        //初始化模式设置和变量
+  86   1        timer=0;
+  87   1        BoostModeInfoTIM=0;
+  88   1        LEDMode=LED_OFF;
+  89   1        }
+  90          
+  91          /****************************************************************************/
+  92          /* Global Function implementation - Logic handler
+  93          ****************************************************************************/   
+  94            
+  95          //LED控制函数
+  96          void LEDControlHandler(void)
+  97            {
+  98   1        char buf;
+  99   1        //进行温控警告模式指示
+ 100   1        if(IsThermalStepdown())
+ 101   1          {
+ 102   2          if(BoostModeInfoTIM>16)BoostModeInfoTIM=0;  //定时器大于16，清零到初始值
+ 103   2            else if(BoostModeInfoTIM==12||BoostModeInfoTIM==16) //在定时器处于12和16的时候，强制关闭
+             -一次LED触发熄灭效果
+ 104   2            {
+ 105   3            BoostModeInfoTIM++;
+ 106   3            RLED=0;
+ 107   3            GLED=0;
+ 108   3            return;            //在特定时刻，让LED短暂熄灭并退出
+ 109   3            }   
+ 110   2          else BoostModeInfoTIM++; //计时器继续累加
+ 111   2          }
+ 112   1        //进行狂暴模式工作指示
+C51 COMPILER V9.60.7.0   LEDMGMT                                                           10/31/2026 08:53:28 PAGE 3   
+
+ 113   1        else if(QueryIsSystemInBoostMode())
+ 114   1          {
+ 115   2          if(BoostModeInfoTIM<12)BoostModeInfoTIM++;
+ 116   2          else
+ 117   2            {
+ 118   3            BoostModeInfoTIM=0;
+ 119   3            RLED=0;
+ 120   3            GLED=0;
+ 121   3            return;            //清零定时器，让LED短暂熄灭并退出
+ 122   3            }
+ 123   2          }
+ 124   1        else BoostModeInfoTIM=0;    
+ 125   1        //据目标模式设置LED状态
+ 126   1        switch(LEDMode)
+ 127   1          {
+ 128   2          case LED_OFF:RLED=0;GLED=0;timer=0;break; //LED关闭
+ 129   2          case LED_Green:RLED=0;GLED=1;break;//绿色LED
+ 130   2          case LED_Red:RLED=1;GLED=0;break;//红色LED
+ 131   2          case LED_Amber:RLED=1;GLED=1;break;//黄色LED
+ 132   2          case LED_AmberBlinkFast:
+ 133   2            //黄色快闪
+ 134   2            timer=timer&0x80?0x00:0x80; //翻转bit 7并重置定时器
+ 135   2            if(!(timer&0x80))
+ 136   2              {
+ 137   3              RLED=0;
+ 138   3              GLED=0;
+ 139   3              }
+ 140   2            else
+ 141   2              {
+ 142   3              RLED=1;
+ 143   3              GLED=1;       
+ 144   3              }
+ 145   2            break;
+ 146   2          case LED_RedBlink_Fast: //红色快闪  
+ 147   2          case LED_RedBlink: //红色闪烁
+ 148   2            GLED=0;
+ 149   2            buf=timer&0x7F; //读取当前定时器的控制位
+ 150   2            if(buf<(LEDMode==LED_RedBlink?3:0))
+ 151   2              {
+ 152   3              buf++;
+ 153   3              timer&=0x80;
+ 154   3              timer|=buf; //时间没到，继续计时
+ 155   3              }
+ 156   2            else timer=timer&0x80?0x00:0x80; //翻转bit 7并重置定时器
+ 157   2            RLED=timer&0x80?1:0; //根据bit 7载入LED控制位
+ 158   2            break;
+ 159   2          case LED_GreenBlinkThird:
+ 160   2          case LED_RedBlinkThird: //LED红色闪烁3次
+ 161   2          case LED_RedBlinkFifth: //LED红色闪烁5次
+ 162   2          case LED_AmberBlinkFifth:
+ 163   2            timer&=0x7F; //去掉最上面的位
+ 164   2            if(timer>((LEDMode==LED_RedBlinkThird||LEDMode==LED_GreenBlinkThird)?6:10))LEDMode=LED_OFF; //时间到
+             -，关闭识别
+ 165   2            else if((timer++)%2)//继续计时,符合条件则点亮LED
+ 166   2              {
+ 167   3              //根据LED颜色输出对应的指令，点亮对应的LED
+ 168   3              if(LEDMode==LED_AmberBlinkFifth){GLED=1;RLED=1;}
+ 169   3              else if(LEDMode==LED_GreenBlinkThird){GLED=1;RLED=0;}
+ 170   3              else {GLED=0;RLED=1;}
+ 171   3              }   
+ 172   2            else 
+ 173   2              {
+C51 COMPILER V9.60.7.0   LEDMGMT                                                           10/31/2026 08:53:28 PAGE 4   
+
+ 174   3              //不符合条件LED熄灭
+ 175   3              RLED=0;
+ 176   3              GLED=0;
+ 177   3              }
+ 178   2            break;
+ 179   2          }
+ 180   1        }
+ 181          
+ 182          /****************************************************************************/
+ 183          /* Global Function implementation - Special Operation
+ 184          ****************************************************************************/   
+ 185            
+ 186          //制造一次快闪
+ 187          void MakeFastStrobe(LEDStateDef LEDMode)
+ 188            {
+ 189   1        //打开LED
+ 190   1        switch(LEDMode)
+ 191   1          {
+ 192   2          case LED_Green:RLED=0;GLED=1;break;//绿色LED
+ 193   2          case LED_Red:RLED=1;GLED=0;break;//红色LED
+ 194   2          case LED_Amber:RLED=1;GLED=1;break;//黄色LED
+ 195   2          default:return; //非法值
+ 196   2          }
+ 197   1        delay_ms(20);
+ 198   1        //关闭LED
+ 199   1        RLED=0;
+ 200   1        GLED=0;
+ 201   1        } 
+ 202          /*****************************  End Of File  ******************************/
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    606    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      2    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      1       6
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

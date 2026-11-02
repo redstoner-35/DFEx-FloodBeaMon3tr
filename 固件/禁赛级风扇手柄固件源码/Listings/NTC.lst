@@ -1,0 +1,141 @@
+C51 COMPILER V9.60.7.0   NTC                                                               10/31/2026 08:53:26 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE NTC
+OBJECT MODULE PLACED IN .\Objects\NTC.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE Hardware\NTC.c OBJECTADVANCED OPTIMIZE(9,SPEED) REGFILE(.\Objects\XRFan-
+                    -Ultra.ORC) BROWSE MODDP2 INCDIR(.\include\System;.\StdDriver\inc;.\Hardware;.\include\Hardware;.\include\Middleware;.\in
+                    -clude\Logic) DEFINE(EnableStdGPIO,EnableHyper1S) DEBUG PRINT(.\Listings\NTC.lst) TABS(2) OBJECT(.\Objects\NTC.obj)
+
+line level    source
+
+   1          /****************************************************************************/
+   2          /** \file NTC.c
+   3          /** \Author [NTC resistor LUT generator BOT] @ redstoner_35
+   4          /** \Project Xtern Ripper Hyper Fan Ultra Edition
+   5          /** \Description 这个文件负责实现根据NTC读回的阻值反向计算温度的功能（该文件�
+             -�
+   6          机器自动生成，未经允许不得随意修改！！）
+   7          
+   8          /** \AdditionINFO  
+   9              This is an automatically generated file by NTC resistor LUT 
+  10              generator. DO NOT EDIT UNLESS YOU FULLY UNDERSTAND WHAT THIS
+  11              FILE ACTUALLY DOES!
+  12              NTC PARAMETER:100.00KΩ @ 25℃ B4310
+  13              Table temperature range:-15℃ to 85℃
+  14              Total ROM space for table:378 Bytes
+  15              Target MCU Architecture:8051 Based MCU
+  16          
+  17          **  History: 
+  18                  2026年7月8日 11:46   根据使用的新NTC在25至85度的B值重新生成新的NTC查找
+  19                                       表解决系统温度测量误差过大的问题。配合硬件部分的
+  20                                       更改。
+  21                                       
+  22                  2025年12月26日 10:05 删除掉超出外壳理论温度上限的温度检测数值，将温度
+  23                                       检测范围调整到-20至85℃节约ROM空间。同时修复在热
+  24                                       敏电阻(NTC)短路或阻值异常偏低时系统报告的温度数
+  25                                       值不正确的问题。
+  26                                       
+  27                  2025年12月20日 Initial Release
+  28          **  
+  29          *****************************************************************************/
+  30          /****************************************************************************/
+  31          /*  include files
+  32          *****************************************************************************/
+  33          #include <stdbool.h>
+  34          
+  35          /****************************************************************************/
+  36          /*  Local pre-processor symbols/macros('#define')
+  37          ****************************************************************************/
+  38          #define TemperatureReportOffset 0 //温度反馈的偏移值（如果你发现温度不准，可以在这�
+             -��对温度监测系统进行TRIM）
+  39          
+  40          /****************************************************************************/
+  41          /*  Local constant definitions('static const')
+  42          ****************************************************************************/
+  43          code unsigned long NTCTableTop[48]={
+  44          880644, 826107, 775326, 728019,   //-15 到 -12 摄氏度
+  45          683926, 642808,604444, 568632,    //-11 到 -8 摄氏度
+  46          535187, 503937,474724, 447402,    //-7 到 -4 摄氏度  
+  47          421837, 397905,375491, 354489,    //-3 到 0 摄氏度   
+  48          334803, 316340,299018, 282759,    //1 到 4 摄氏度
+  49          267491, 253148,239667, 226993,    //5 到 8 摄氏度
+  50          215072, 203854,193293, 183348,    //9 到 12 摄氏度
+  51          173979, 165148,156822, 148970,    //13 到 16 摄氏度
+C51 COMPILER V9.60.7.0   NTC                                                               10/31/2026 08:53:26 PAGE 2   
+
+  52          141560, 134566,127961, 121722,    //17 到 20 摄氏度
+  53          115827, 110254,104985, 100000,    //21 到 25 摄氏度
+  54          95282,90816,86588, 82582,         //26 到 30 摄氏度
+  55          78786,75188,71776, 68540          //31 到 34 摄氏度
+  56          };
+  57          
+  58          code unsigned int NTCTableBottom[52]={
+  59          65469, 62555, 59788, 57160,   //35 到 38 摄氏度
+  60          54663, 52290, 50035, 47890,   //39 到 42 摄氏度
+  61          45850, 43909, 42061, 40303,   //43 到 46 摄氏度
+  62          38628, 37032, 35512, 34063,   //47 到 50 摄氏度
+  63          32681, 31364, 30107, 28908,   //51 到 54 摄氏度
+  64          27764, 26671, 25628, 24631,   //55 到 58 摄氏度
+  65          23679, 22769, 21899, 21068,   //59 到 62 摄氏度
+  66          20272, 19511, 18783, 18086,   //63 到 66 摄氏度
+  67          17419, 16780, 16169, 15582,   //67 到 70 摄氏度
+  68          15021, 14482, 13966, 13471,   //71 到 74 摄氏度
+  69          12997, 12541, 12105, 11685,   //75 到 78 摄氏度
+  70          11283, 10896, 10525, 10168,   //79 到 82 摄氏度
+  71          9826, 9497, 9180, 8876        //83 到 86 摄氏度
+  72          };
+  73          
+  74          //NTC温度换算函数
+  75          //传入参数：NTC阻值(Ω),温度是否有效的bool指针输出
+  76          //返回参数：温度值(℃)
+  77          int CalcNTCTemp(bool *IsNTCOK,unsigned long NTCRes){
+  78   1      unsigned char i;
+  79   1      volatile unsigned long NTCTableValue;
+  80   1      //电阻值大于查找表阻值上限，温度异常
+  81   1      if(NTCRes>(unsigned long)880644)
+  82   1        {
+  83   2        *IsNTCOK=false;
+  84   2        return -15;
+  85   2        }
+  86   1      //电阻值小于查找表阻值的阻值下限，温度异常
+  87   1      if(NTCRes<(unsigned long)8876)
+  88   1        {
+  89   2        *IsNTCOK=false;
+  90   2        return 86;
+  91   2        }
+  92   1      //温度正常，开始查表
+  93   1      *IsNTCOK=true;
+  94   1      if(NTCRes>(unsigned long)65469)for(i=0;i<48;i++)if(NTCTableTop[i]<=NTCRes)return (int)TemperatureReportOff
+             -set+(-15+i);
+  95   1      for(i=0;i<52;i++)
+  96   1        {
+  97   2        NTCTableValue=(unsigned long)NTCTableBottom[i];
+  98   2        NTCTableValue&=0xFFFF;
+  99   2        if(NTCTableValue<=NTCRes)return (int)TemperatureReportOffset+(35+i);
+ 100   2        }
+ 101   1      //数值查找失败，返回错误值
+ 102   1      *IsNTCOK=false;
+ 103   1      return 0;
+ 104   1      }
+ 105          /*************************  End Of File  ***********************/
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    291    ----
+   CONSTANT SIZE    =    296    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+C51 COMPILER V9.60.7.0   NTC                                                               10/31/2026 08:53:26 PAGE 3   
+
+   DATA SIZE        =   ----      12
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
