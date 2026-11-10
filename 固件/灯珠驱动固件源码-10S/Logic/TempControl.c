@@ -6,6 +6,10 @@
 条件下限制输出功率以及强制关机，以保护系统免受过度高温影响。
 
 **	
+				2026年11月06日 14:06   
+														 1.按照之前X2的功率重新计算适配的温控电流参数，使得
+															 驱动的输出功率保持一致，避免超出壳子解热能力上限
+				
 				2025年12月28日 12:42 1.新增在POWER模式下在电池即将耗尽，跳转到高亮继续
 				                       运作前，逐步降低系统的外壳温度至高亮恒温值以避
 															 切换到高亮后，系统瞬间因高温差大幅度降档导致亮
@@ -53,11 +57,11 @@
 #define BatteryDynamicTurboDegFactor 20 //极亮模式下动态调节恒温温度实现无缝过渡的系数，单位(mV)系数越小，温度下降速度越快 
 
 //常亮电流配置
-#define ThermalFoldbackILEDDegVal 5500 //触发温度回折保护之后，降档系统立即减少的电流量(mA)
-#define ILEDConstantGlowMin 5000 //降档系统内的低温温控的常亮电流设置(mA)
+#define ThermalFoldbackILEDDegVal 4500 //触发温度回折保护之后，降档系统立即减少的电流量(mA)
+#define ILEDConstantGlowMin 4400 //降档系统内的低温温控的常亮电流设置(mA)
 #define ILEDConstantGlowMinOverHeat 2000 //过热后普通挡位的常亮电流值(mA)
-#define ILEDConstantGlowMinTurbo 12000 //降档系统内的极亮温控的常亮电流设置(mA)
-#define ILEDConstantGlowMinECOTurbo 8000 //降档系统内的极亮温控（ECO模式）的常亮电流设置(mA)
+#define ILEDConstantGlowMinTurbo 9500 //降档系统内的极亮温控的常亮电流设置(mA)
+#define ILEDConstantGlowMinECOTurbo 6500 //降档系统内的极亮温控（ECO模式）的常亮电流设置(mA)
 
 //温度配置
 #define ForceOffTemp 80 //过热关机温度

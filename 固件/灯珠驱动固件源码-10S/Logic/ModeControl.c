@@ -6,6 +6,11 @@
 功能，并且实现系统中无极调光功能的具体逻辑模块。
 
 **	History: 
+			  2026年11月6日 14:06   
+														 1.按照之前X2的功率重新计算适配的挡位电流参数，使得
+															 驱动的输出功率保持一致，避免超出壳子解热能力上限
+
+
 			  2026年10月27日 08:27   
 														 1.移除掉在10S3V驱动层面不被支持的FL8032P灯珠和一些
 														   不使用的灯珠（如老王N7270HP和FV7011I等）的电流提
@@ -261,7 +266,7 @@ code ModeStrDef ModeSettings[ModeTotalDepth]=
     //低亮
 		{
 		Mode_Low,
-		CalcIREFValue(650),  //650mA电流
+		CalcIREFValue(750),  //750mA电流
 		0,   //最小电流没用到，无视
 		2950,  //2.95V关断
 		true,
@@ -278,7 +283,7 @@ code ModeStrDef ModeSettings[ModeTotalDepth]=
     //中亮
 		{
 		Mode_Mid,
-		CalcIREFValue(1600),  //1600mA电流
+		CalcIREFValue(1500),  //1.5A电流
 		0,   //最小电流没用到，无视
 		3050,  //3.05V关断
 		true,
@@ -295,7 +300,7 @@ code ModeStrDef ModeSettings[ModeTotalDepth]=
     //中高亮
 		{
 		Mode_MHigh,
-		CalcIREFValue(3250),  //3250mA电流
+		CalcIREFValue(3000),  //3A电流
 		0,   //最小电流没用到，无视
 		3150,  //3.15V关断
 		true,
@@ -312,7 +317,7 @@ code ModeStrDef ModeSettings[ModeTotalDepth]=
     //高亮
 		{
 		Mode_High,
-		CalcIREFValue(7000),  //7000mA电流
+		CalcIREFValue(6000),  //6A电流
 		0,   //最小电流没用到，无视
 		3250,  //3.25V关断
 		true,
@@ -363,7 +368,7 @@ code ModeStrDef ModeSettings[ModeTotalDepth]=
 	  //无极调光		
 		{
 		Mode_Ramp,
-		CalcIREFValue(10000),  //最大 10000mA电流
+		CalcIREFValue(7000),  //最大 7000mA电流
 		CalcIREFValue(150),   //最小 150mA电流
 		3200,  //3.2V关断
 		false, //不能带记忆  
@@ -397,7 +402,7 @@ code ModeStrDef ModeSettings[ModeTotalDepth]=
 	  //SOS
 		{
 		Mode_SOS,
-		CalcIREFValue(10500),  //10.5A电流
+		CalcIREFValue(6000),  //6A电流
 		0,   //最小电流没用到，无视
 		2750,  //2.75V关断
 		false,	//SOS不能带记忆
@@ -415,7 +420,7 @@ code ModeStrDef ModeSettings[ModeTotalDepth]=
 		{
 		Mode_FuckDog,
 		CalcIREFValue(StrobeICCMAX),  //按下全功率爆闪
-		CalcIREFValue(1100),   //默认松手的电流（1.1A）
+		CalcIREFValue(1000),   //默认松手的电流（1A）
 		2900,  //2.90V关断
 		false,	//不能带记忆
 		true,
@@ -431,7 +436,7 @@ code ModeStrDef ModeSettings[ModeTotalDepth]=
 		//电池放电模式
 		{
 		Mode_Discharge,
-		CalcIREFValue(3500),  //最大3500mA
+		CalcIREFValue(2000),  //最大2000mA
 		CalcIREFValue(300),   									//最小电流设定在接近放电尾声的电流
 		DischargeThres,  			//指定阈值关断
 		false,	//不能带记忆
@@ -766,8 +771,8 @@ void SpecialModeCurrentFetch(void)
 			{
 			case Battery_Plenty:
 			case Battery_Mid:Current=QueryCurrentGearILED();break;
-      case Battery_Low:Current=CalcIREFValue(10000);break;
-			case Battery_VeryLow:Current=CalcIREFValue(4000);break;
+      case Battery_Low:Current=CalcIREFValue(4000);break;
+			case Battery_VeryLow:Current=CalcIREFValue(2000);break;
 			}
 	//仅允许在电量充足，开启全功率爆闪的时候，开启高频爆闪Halt
 	if(QueryIfBatteryIsLow())IsHighPowerStrobe=0;	
